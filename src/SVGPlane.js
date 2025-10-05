@@ -6,7 +6,7 @@ export class SVGPlane extends Plane {
     constructor(scene) {
         super(scene)
         this.loader = new SVGLoader()
-        this.setBaseScale(5) // SVG plane base scale
+        // this.setBaseScale(10) // SVG plane base scale
     }
 
     async load() {
@@ -66,13 +66,18 @@ export class SVGPlane extends Plane {
     }
 
     // Override to add SVG-specific rotation and offset
-    updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize = 1.0) {
+    updatePositionAndOrientation(curve, planeSize, t) {
         // Call parent method first
-        super.updatePositionAndOrientation(position, tangent, up, right, newUp)
+        super.updatePositionAndOrientation(curve, planeSize, t)
 
         // Apply SVG-specific rotation and offset
         if (this.mesh) {
             this.mesh.rotateX(Math.PI / 2)
+
+            // We need to recalculate the right vector for offset
+            const tangent = curve.getTangentAt(t).normalize()
+            const up = new THREE.Vector3(0, 1, 0)
+            const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
 
             // Apply position offset to center the plane
             const baseOffset = 70 // Base offset for normal size (scale = 1.0)

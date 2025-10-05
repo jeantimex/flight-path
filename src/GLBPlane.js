@@ -5,7 +5,7 @@ export class GLBPlane extends Plane {
     constructor(scene) {
         super(scene)
         this.loader = new GLTFLoader()
-        this.setBaseScale(50) // GLB plane base scale
+        // this.setBaseScale(100) // GLB plane base scale
     }
 
     async load() {
@@ -26,9 +26,9 @@ export class GLBPlane extends Plane {
     }
 
     // Override to add GLB-specific rotation
-    updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize = 1.0) {
+    updatePositionAndOrientation(curve, planeSize, t) {
         // Call parent method first
-        super.updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize)
+        super.updatePositionAndOrientation(curve, planeSize, t)
 
         // Apply GLB-specific rotation
         if (this.mesh) {

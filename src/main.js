@@ -5,6 +5,7 @@ import * as dat from 'dat.gui'
 import { Plane } from './Plane.js'
 import { GLBPlane } from './GLBPlane.js'
 import { SVGPlane } from './SVGPlane.js'
+import { Curve } from './Curve.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -15,7 +16,7 @@ renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
-let curve
+let flightCurve
 const clock = new THREE.Clock()
 let animationTime = 0
 let currentPlane = null
@@ -33,9 +34,13 @@ gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSi
 
 // Initialize with GLB plane
 async function initializePlane() {
+    // Create the flight curve
+    flightCurve = new Curve(scene)
+    flightCurve.create()
+
+    // Create the plane
     currentPlane = new GLBPlane(scene)
     await currentPlane.load()
-    motion()
 }
 
 // Function to update plane size
@@ -68,61 +73,13 @@ controls.minDistance = 100
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
 
-// Motion function based on your code
-function motion() {
-    // Create 3D spline curve using CatmullRomCurve3
-    curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(-1000, -5000, -5000),
-        new THREE.Vector3(1000, 0, 0),
-        new THREE.Vector3(800, 5000, 5000),
-        new THREE.Vector3(-500, 0, 10000)
-    ])
-
-    // Get 100 points along the curve
-    const points = curve.getPoints(100)
-
-    // Create line geometry for the curve visualization
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints(points)
-    const lineMaterial = new THREE.LineBasicMaterial({ color: 0x4488ff })
-    const line = new THREE.Line(lineGeometry, lineMaterial)
-    scene.add(line)
-
-    // Create animation timeline
-    const times = []
-    for (let i = 0; i <= 100; i++) {
-        times.push(i)
-    }
-
-    // Create position array from curve points
-    const posArr = []
-    points.forEach(point => {
-        posArr.push(point.x, point.y, point.z)
-    })
-
-
-    // We'll handle position and rotation manually in the animation loop
-    // Remove the keyframe animation system for better control
-    // Create a custom animation approach
-}
 
 // Function to update plane position and orientation based on curve
 function updatePlaneOnCurve(t) {
-    if (!currentPlane || !curve) return
-
-    // Get current position on curve
-    const position = curve.getPointAt(t)
-
-    // Get tangent vector at current position (direction of movement)
-    const tangent = curve.getTangentAt(t).normalize()
-
-    // Create a proper orientation matrix
-    // We want the plane's forward direction to align with the tangent
-    const up = new THREE.Vector3(0, 1, 0) // World up vector
-    const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
-    const newUp = new THREE.Vector3().crossVectors(right, tangent).normalize()
+    if (!currentPlane || !flightCurve || !flightCurve.exists()) return
 
     // Delegate to the plane's specific implementation
-    currentPlane.updatePositionAndOrientation(position, tangent, up, right, newUp, params.planeSize)
+    currentPlane.updatePositionAndOrientation(flightCurve, params.planeSize, t)
 }
 
 // Function to switch between model types
@@ -146,12 +103,9 @@ async function switchModelType(value) {
         await currentPlane.load()
     }
 
-    // Apply current scale to the new plane
-    currentPlane.setScale(params.planeSize)
-
     // Restore animation time and immediately update position
     animationTime = currentTime
-    if (currentPlane && curve) {
+    if (currentPlane && flightCurve && flightCurve.exists()) {
         const t = (animationTime % 1)
         updatePlaneOnCurve(t)
     }
