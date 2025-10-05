@@ -50,9 +50,10 @@ export class SVGPlane {
                 // group.rotateY(Math.PI / 2)
                 // group.rotateZ(0) // Rotate 90 degrees counterclockwise to make head point forward
 
-                // Center the group
+                // Just center the group normally - offset will be handled in animation
                 const box = new THREE.Box3().setFromObject(group)
                 const center = box.getCenter(new THREE.Vector3())
+
                 group.position.sub(center)
 
                 this.scene.add(group)

@@ -89,6 +89,7 @@ function motion() {
         posArr.push(point.x, point.y, point.z)
     })
 
+
     // We'll handle position and rotation manually in the animation loop
     // Remove the keyframe animation system for better control
     // Create a custom animation approach
@@ -100,7 +101,6 @@ function updatePlaneOnCurve(t) {
 
     // Get current position on curve
     const position = curve.getPointAt(t)
-    mesh.position.copy(position)
 
     // Get tangent vector at current position (direction of movement)
     const tangent = curve.getTangentAt(t).normalize()
@@ -110,6 +110,9 @@ function updatePlaneOnCurve(t) {
     const up = new THREE.Vector3(0, 1, 0) // World up vector
     const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
     const newUp = new THREE.Vector3().crossVectors(right, tangent).normalize()
+
+    // Set the position directly from the curve
+    mesh.position.copy(position)
 
     // Create rotation matrix
     const rotationMatrix = new THREE.Matrix4()
@@ -125,6 +128,13 @@ function updatePlaneOnCurve(t) {
     } else if (params.modelType === 'SVG') {
         // SVG plane needs different orientation - adjust based on how the SVG is oriented
         mesh.rotateX(Math.PI / 2) // Rotate around X to orient properly
+
+        // After rotation, apply world-coordinate offset to center the plane
+        // Since you said the plane needs to move left by half its size (~70 units)
+        // and the "right" vector points to the plane's right, we offset in the opposite direction
+        const offsetDistance = 70 // Half the plane width
+        const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
+        mesh.position.add(offsetVector)
     }
 }
 
