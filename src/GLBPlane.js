@@ -1,56 +1,28 @@
-import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { Plane } from './Plane.js'
 
-export class GLBPlane {
+export class GLBPlane extends Plane {
     constructor(scene) {
-        this.scene = scene
+        super(scene)
         this.loader = new GLTFLoader()
-        this.mesh = null
+        this.setBaseScale(50) // GLB plane base scale
     }
 
     async load() {
         return new Promise((resolve, reject) => {
             this.loader.load('/src/plane.glb', (gltf) => {
                 this.mesh = gltf.scene
-                this.mesh.scale.set(50, 50, 50)
+                this.setBaseScale(50) // Apply base scale
                 this.scene.add(this.mesh)
-                console.log('GLB plane loaded successfully')
                 resolve(this.mesh)
             }, (progress) => {
-                console.log('Loading GLB progress:', (progress.loaded / progress.total * 100) + '%')
             }, (error) => {
                 console.error('Error loading GLB plane:', error)
-                // Create fallback cube
-                this.createFallbackCube()
+                // Create fallback cube with red color
+                this.createFallbackCube(0xff6666)
                 resolve(this.mesh)
             })
         })
     }
 
-    createFallbackCube() {
-        const geometry = new THREE.BoxGeometry(100, 100, 100)
-        const material = new THREE.MeshBasicMaterial({ color: 0xff6666 })
-        this.mesh = new THREE.Mesh(geometry, material)
-        this.scene.add(this.mesh)
-        console.log('Using fallback cube for GLB plane')
-    }
-
-    remove() {
-        if (this.mesh) {
-            this.scene.remove(this.mesh)
-            this.mesh = null
-        }
-    }
-
-    getMesh() {
-        return this.mesh
-    }
-
-    setScale(scale) {
-        if (this.mesh) {
-            // GLB plane base scale is 50, so multiply by the scale factor
-            const baseScale = 50
-            this.mesh.scale.setScalar(baseScale * scale)
-        }
-    }
 }

@@ -2,6 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
+import { Plane } from './Plane.js'
 import { GLBPlane } from './GLBPlane.js'
 import { SVGPlane } from './SVGPlane.js'
 
@@ -150,6 +151,9 @@ function updatePlaneOnCurve(t) {
 
 // Function to switch between model types
 async function switchModelType(value) {
+    // Store current animation time to continue from same position
+    const currentTime = animationTime
+
     // Remove current plane
     if (currentPlane) {
         currentPlane.remove()
@@ -167,6 +171,18 @@ async function switchModelType(value) {
 
     // Initialize motion with new mesh
     motion()
+
+    // Apply current scale to the new plane
+    if (currentPlane && params.planeSize !== 1.0) {
+        currentPlane.setScale(params.planeSize)
+    }
+
+    // Restore animation time and immediately update position
+    animationTime = currentTime
+    if (mesh && curve) {
+        const t = (animationTime % 1)
+        updatePlaneOnCurve(t)
+    }
 }
 
 // Motion will be initialized after model loads
