@@ -1,43 +1,42 @@
 import './style.css'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import * as dat from 'dat.gui'
+import { GLBPlane } from './GLBPlane.js'
+import { SVGPlane } from './SVGPlane.js'
 
 // Scene setup
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000)
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setClearColor(0x111111)
+renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
-let curve, mesh, mixer
+let curve, mesh
 const clock = new THREE.Clock()
-const loader = new GLTFLoader()
 let animationTime = 0
+let currentPlane = null
 
-// Load the plane model
-let planeModel = null
-loader.load('/src/plane.glb', (gltf) => {
-    planeModel = gltf.scene
-    planeModel.scale.set(50, 50, 50) // Adjust scale as needed
-    scene.add(planeModel)
-    mesh = planeModel // Use the plane as the animated mesh
+// GUI controls
+const params = {
+    modelType: 'GLB'
+}
 
-    // Initialize motion after model is loaded
+// Setup dat.GUI
+const gui = new dat.GUI()
+gui.add(params, 'modelType', ['GLB', 'SVG']).name('Model Type').onChange(switchModelType)
+
+// Initialize with GLB plane
+async function initializePlane() {
+    currentPlane = new GLBPlane(scene)
+    mesh = await currentPlane.load()
     motion()
-}, (progress) => {
-    console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%')
-}, (error) => {
-    console.error('Error loading plane model:', error)
-    // Fallback to cube if model fails to load
-    const geometry = new THREE.BoxGeometry(100, 100, 100)
-    const material = new THREE.MeshBasicMaterial({ color: 0xff6666 })
-    mesh = new THREE.Mesh(geometry, material)
-    scene.add(mesh)
-    motion()
-})
+}
+
+// Start with GLB plane
+initializePlane()
 
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
@@ -119,9 +118,35 @@ function updatePlaneOnCurve(t) {
     // Apply rotation to the mesh
     mesh.setRotationFromMatrix(rotationMatrix)
 
-    // Additional rotation adjustment if needed (depends on your plane model's orientation)
-    // You might need to adjust these values based on how your plane is oriented in the .glb file
-    mesh.rotateY(Math.PI) // Rotate 180 degrees around Y if plane faces wrong direction
+    // Apply different rotation adjustments based on plane type
+    if (params.modelType === 'GLB') {
+        // GLB plane needs Y rotation
+        mesh.rotateY(Math.PI)
+    } else if (params.modelType === 'SVG') {
+        // SVG plane needs different orientation - adjust based on how the SVG is oriented
+        mesh.rotateX(Math.PI / 2) // Rotate around X to orient properly
+    }
+}
+
+// Function to switch between model types
+async function switchModelType(value) {
+    // Remove current plane
+    if (currentPlane) {
+        currentPlane.remove()
+        currentPlane = null
+        mesh = null
+    }
+
+    if (value === 'GLB') {
+        currentPlane = new GLBPlane(scene)
+        mesh = await currentPlane.load()
+    } else if (value === 'SVG') {
+        currentPlane = new SVGPlane(scene)
+        mesh = await currentPlane.load()
+    }
+
+    // Initialize motion with new mesh
+    motion()
 }
 
 // Motion will be initialized after model loads
