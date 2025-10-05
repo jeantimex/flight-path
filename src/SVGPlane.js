@@ -81,15 +81,14 @@ export class SVGPlane extends Plane {
             const tangent = curve.getTangentAt(t).normalize()
             const up = new THREE.Vector3(0, 1, 0)
             const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
-            const newUp = new THREE.Vector3().crossVectors(right, tangent).normalize()
 
             // Apply position offset to center the plane
             // Calculate horizontal offset using half of SVG width (move left)
             const horizontalOffset = (this.svgWidth / 2) * this.baseScale * planeSize
             const horizontalVector = right.clone().multiplyScalar(-horizontalOffset)
 
-            // Calculate forward offset using half of SVG width (move forward)
-            const forwardOffset = (this.svgWidth / 2) * this.baseScale * planeSize
+            // Calculate forward offset using half of SVG height (move forward)
+            const forwardOffset = (this.svgHeight / 2) * this.baseScale * planeSize
             const forwardVector = tangent.clone().multiplyScalar(forwardOffset)
 
             // Apply both offsets

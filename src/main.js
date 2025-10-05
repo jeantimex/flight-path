@@ -2,7 +2,6 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
-import { Plane } from './Plane.js'
 import { GLBPlane } from './GLBPlane.js'
 import { SVGPlane } from './SVGPlane.js'
 import { Curve } from './Curve.js'
@@ -98,7 +97,6 @@ controls.minDistance = 100
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
 
-
 // Function to update plane position and orientation based on curve
 function updatePlaneOnCurve(t) {
     if (!currentPlane || !flightCurve || !flightCurve.exists()) return
@@ -159,8 +157,6 @@ async function switchModelType(value) {
         updatePlaneOnCurve(t)
     }
 }
-
-// Motion will be initialized after model loads
 
 // Animation loop
 function animate() {
