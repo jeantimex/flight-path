@@ -173,16 +173,12 @@ async function switchModelType(value) {
     motion()
 
     // Apply current scale to the new plane
-    if (currentPlane && params.planeSize !== 1.0) {
-        currentPlane.setScale(params.planeSize)
-    }
+    currentPlane.setScale(params.planeSize)
 
     // Restore animation time and immediately update position
     animationTime = currentTime
-    if (mesh && curve) {
-        const t = (animationTime % 1)
-        updatePlaneOnCurve(t)
-    }
+    const t = (animationTime % 1)
+    updatePlaneOnCurve(t)
 }
 
 // Motion will be initialized after model loads
