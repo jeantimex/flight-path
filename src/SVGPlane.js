@@ -89,4 +89,12 @@ export class SVGPlane {
     getMesh() {
         return this.mesh
     }
+
+    setScale(scale) {
+        if (this.mesh) {
+            // SVG plane base scale is 5, so multiply by the scale factor
+            const baseScale = 5
+            this.mesh.scale.setScalar(baseScale * scale)
+        }
+    }
 }

@@ -45,4 +45,12 @@ export class GLBPlane {
     getMesh() {
         return this.mesh
     }
+
+    setScale(scale) {
+        if (this.mesh) {
+            // GLB plane base scale is 50, so multiply by the scale factor
+            const baseScale = 50
+            this.mesh.scale.setScalar(baseScale * scale)
+        }
+    }
 }

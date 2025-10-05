@@ -21,18 +21,27 @@ let currentPlane = null
 
 // GUI controls
 const params = {
-    modelType: 'GLB'
+    modelType: 'GLB',
+    planeSize: 1.0
 }
 
 // Setup dat.GUI
 const gui = new dat.GUI()
 gui.add(params, 'modelType', ['GLB', 'SVG']).name('Model Type').onChange(switchModelType)
+gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSize)
 
 // Initialize with GLB plane
 async function initializePlane() {
     currentPlane = new GLBPlane(scene)
     mesh = await currentPlane.load()
     motion()
+}
+
+// Function to update plane size
+function updatePlaneSize(size) {
+    if (currentPlane && currentPlane.getMesh()) {
+        currentPlane.setScale(size)
+    }
 }
 
 // Start with GLB plane
@@ -132,7 +141,8 @@ function updatePlaneOnCurve(t) {
         // After rotation, apply world-coordinate offset to center the plane
         // Since you said the plane needs to move left by half its size (~70 units)
         // and the "right" vector points to the plane's right, we offset in the opposite direction
-        const offsetDistance = 70 // Half the plane width
+        const baseOffset = 70 // Base offset for normal size (scale = 1.0)
+        const offsetDistance = baseOffset * params.planeSize // Scale the offset with plane size
         const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
         mesh.position.add(offsetVector)
     }
