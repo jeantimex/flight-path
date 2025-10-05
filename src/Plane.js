@@ -47,4 +47,20 @@ export class Plane {
             this.mesh.scale.setScalar(baseScale)
         }
     }
+
+    // Method to update plane position and orientation along curve
+    // To be overridden by subclasses for specific behavior
+    updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize = 1.0) {
+        if (!this.mesh) return
+
+        // Set position
+        this.mesh.position.copy(position)
+
+        // Create and apply rotation matrix
+        const rotationMatrix = new THREE.Matrix4()
+        rotationMatrix.makeBasis(right, newUp, tangent.clone().negate())
+        this.mesh.setRotationFromMatrix(rotationMatrix)
+
+        // Subclasses should override to add specific rotations/offsets
+    }
 }

@@ -25,4 +25,15 @@ export class GLBPlane extends Plane {
         })
     }
 
+    // Override to add GLB-specific rotation
+    updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize = 1.0) {
+        // Call parent method first
+        super.updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize)
+
+        // Apply GLB-specific rotation
+        if (this.mesh) {
+            this.mesh.rotateY(Math.PI)
+        }
+    }
+
 }

@@ -64,4 +64,21 @@ export class SVGPlane extends Plane {
             })
         })
     }
+
+    // Override to add SVG-specific rotation and offset
+    updatePositionAndOrientation(position, tangent, up, right, newUp, planeSize = 1.0) {
+        // Call parent method first
+        super.updatePositionAndOrientation(position, tangent, up, right, newUp)
+
+        // Apply SVG-specific rotation and offset
+        if (this.mesh) {
+            this.mesh.rotateX(Math.PI / 2)
+
+            // Apply position offset to center the plane
+            const baseOffset = 70 // Base offset for normal size (scale = 1.0)
+            const offsetDistance = baseOffset * planeSize // Scale the offset with plane size
+            const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
+            this.mesh.position.add(offsetVector)
+        }
+    }
 }

@@ -15,7 +15,7 @@ renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
-let curve, mesh
+let curve
 const clock = new THREE.Clock()
 let animationTime = 0
 let currentPlane = null
@@ -34,7 +34,7 @@ gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSi
 // Initialize with GLB plane
 async function initializePlane() {
     currentPlane = new GLBPlane(scene)
-    mesh = await currentPlane.load()
+    await currentPlane.load()
     motion()
 }
 
@@ -107,7 +107,7 @@ function motion() {
 
 // Function to update plane position and orientation based on curve
 function updatePlaneOnCurve(t) {
-    if (!mesh || !curve) return
+    if (!currentPlane || !curve) return
 
     // Get current position on curve
     const position = curve.getPointAt(t)
@@ -121,32 +121,8 @@ function updatePlaneOnCurve(t) {
     const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
     const newUp = new THREE.Vector3().crossVectors(right, tangent).normalize()
 
-    // Set the position directly from the curve
-    mesh.position.copy(position)
-
-    // Create rotation matrix
-    const rotationMatrix = new THREE.Matrix4()
-    rotationMatrix.makeBasis(right, newUp, tangent.clone().negate())
-
-    // Apply rotation to the mesh
-    mesh.setRotationFromMatrix(rotationMatrix)
-
-    // Apply different rotation adjustments based on plane type
-    if (params.modelType === 'GLB') {
-        // GLB plane needs Y rotation
-        mesh.rotateY(Math.PI)
-    } else if (params.modelType === 'SVG') {
-        // SVG plane needs different orientation - adjust based on how the SVG is oriented
-        mesh.rotateX(Math.PI / 2) // Rotate around X to orient properly
-
-        // After rotation, apply world-coordinate offset to center the plane
-        // Since you said the plane needs to move left by half its size (~70 units)
-        // and the "right" vector points to the plane's right, we offset in the opposite direction
-        const baseOffset = 70 // Base offset for normal size (scale = 1.0)
-        const offsetDistance = baseOffset * params.planeSize // Scale the offset with plane size
-        const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
-        mesh.position.add(offsetVector)
-    }
+    // Delegate to the plane's specific implementation
+    currentPlane.updatePositionAndOrientation(position, tangent, up, right, newUp, params.planeSize)
 }
 
 // Function to switch between model types
@@ -158,15 +134,16 @@ async function switchModelType(value) {
     if (currentPlane) {
         currentPlane.remove()
         currentPlane = null
-        mesh = null
     }
 
     if (value === 'GLB') {
         currentPlane = new GLBPlane(scene)
-        mesh = await currentPlane.load()
     } else if (value === 'SVG') {
         currentPlane = new SVGPlane(scene)
-        mesh = await currentPlane.load()
+    }
+
+    if (currentPlane) {
+        await currentPlane.load()
     }
 
     // Initialize motion with new mesh
@@ -177,8 +154,10 @@ async function switchModelType(value) {
 
     // Restore animation time and immediately update position
     animationTime = currentTime
-    const t = (animationTime % 1)
-    updatePlaneOnCurve(t)
+    if (currentPlane && curve) {
+        const t = (animationTime % 1)
+        updatePlaneOnCurve(t)
+    }
 }
 
 // Motion will be initialized after model loads
