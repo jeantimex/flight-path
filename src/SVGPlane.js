@@ -48,8 +48,9 @@ export class SVGPlane extends Plane {
                 const box = new THREE.Box3().setFromObject(group)
                 const center = box.getCenter(new THREE.Vector3())
 
-                // Store the original SVG width for offset calculations
+                // Store the original SVG dimensions for offset calculations
                 this.svgWidth = box.max.x - box.min.x
+                this.svgHeight = box.max.y - box.min.y
 
                 group.position.sub(center)
 
@@ -76,17 +77,24 @@ export class SVGPlane extends Plane {
         if (this.mesh) {
             this.mesh.rotateX(Math.PI / 2)
 
-            // We need to recalculate the right vector for offset
+            // We need to recalculate the vectors for offset
             const tangent = curve.getTangentAt(t).normalize()
             const up = new THREE.Vector3(0, 1, 0)
             const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
+            const newUp = new THREE.Vector3().crossVectors(right, tangent).normalize()
 
             // Apply position offset to center the plane
-            // Use half of the actual SVG width scaled by baseScale
-            const baseOffset = (this.svgWidth / 2) * this.baseScale
-            const offsetDistance = baseOffset * planeSize
-            const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
-            this.mesh.position.add(offsetVector)
+            // Calculate horizontal offset using half of SVG width (move left)
+            const horizontalOffset = (this.svgWidth / 2) * this.baseScale * planeSize
+            const horizontalVector = right.clone().multiplyScalar(-horizontalOffset)
+
+            // Calculate forward offset using half of SVG width (move forward)
+            const forwardOffset = (this.svgWidth / 2) * this.baseScale * planeSize
+            const forwardVector = tangent.clone().multiplyScalar(forwardOffset)
+
+            // Apply both offsets
+            this.mesh.position.add(horizontalVector)
+            this.mesh.position.add(forwardVector)
         }
     }
 }
