@@ -6,6 +6,7 @@ export class SVGPlane extends Plane {
     constructor(scene) {
         super(scene)
         this.loader = new SVGLoader()
+        this.baseScale = 50
     }
 
     async load() {
@@ -53,8 +54,7 @@ export class SVGPlane extends Plane {
                 group.position.sub(center)
 
                 this.scene.add(group)
-                this.mesh = group
-                this.setBaseScale(50) // Apply base scale
+                this.setMesh(group)
                 resolve(this.mesh)
 
             }, (progress) => {

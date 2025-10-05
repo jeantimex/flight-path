@@ -33,6 +33,14 @@ export class Plane {
         return this.mesh
     }
 
+    // Mesh setter that automatically applies base scale
+    setMesh(mesh) {
+        this.mesh = mesh
+        if (mesh && this.baseScale) {
+            this.setBaseScale(this.baseScale)
+        }
+    }
+
     // Common method to set scale
     setScale(scale) {
         if (this.mesh) {
