@@ -6,7 +6,6 @@ export class SVGPlane extends Plane {
     constructor(scene) {
         super(scene)
         this.loader = new SVGLoader()
-        // this.setBaseScale(10) // SVG plane base scale
     }
 
     async load() {
@@ -48,11 +47,14 @@ export class SVGPlane extends Plane {
                 const box = new THREE.Box3().setFromObject(group)
                 const center = box.getCenter(new THREE.Vector3())
 
+                // Store the original SVG width for offset calculations
+                this.svgWidth = box.max.x - box.min.x
+
                 group.position.sub(center)
 
                 this.scene.add(group)
                 this.mesh = group
-                this.setBaseScale(5) // Apply base scale
+                this.setBaseScale(50) // Apply base scale
                 resolve(this.mesh)
 
             }, (progress) => {
@@ -80,8 +82,9 @@ export class SVGPlane extends Plane {
             const right = new THREE.Vector3().crossVectors(tangent, up).normalize()
 
             // Apply position offset to center the plane
-            const baseOffset = 70 // Base offset for normal size (scale = 1.0)
-            const offsetDistance = baseOffset * planeSize // Scale the offset with plane size
+            // Use half of the actual SVG width scaled by baseScale
+            const baseOffset = (this.svgWidth / 2) * this.baseScale
+            const offsetDistance = baseOffset * planeSize
             const offsetVector = right.clone().multiplyScalar(-offsetDistance) // Move left
             this.mesh.position.add(offsetVector)
         }

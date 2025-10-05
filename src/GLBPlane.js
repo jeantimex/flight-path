@@ -5,14 +5,13 @@ export class GLBPlane extends Plane {
     constructor(scene) {
         super(scene)
         this.loader = new GLTFLoader()
-        // this.setBaseScale(100) // GLB plane base scale
     }
 
     async load() {
         return new Promise((resolve, reject) => {
             this.loader.load('/src/plane.glb', (gltf) => {
                 this.mesh = gltf.scene
-                this.setBaseScale(50) // Apply base scale
+                this.setBaseScale(50)
                 this.scene.add(this.mesh)
                 resolve(this.mesh)
             }, (progress) => {
