@@ -1,21 +1,17 @@
 import * as THREE from 'three'
 
 export class Curve {
-    constructor(scene) {
+    constructor(scene, options = {}) {
         this.scene = scene
         this.curve = null
         this.line = null
+        this.controlPoints = options.controlPoints || []
     }
 
     // Create the 3D spline curve and visualization
     create() {
         // Create 3D spline curve using CatmullRomCurve3
-        this.curve = new THREE.CatmullRomCurve3([
-            new THREE.Vector3(-1000, -5000, -5000),
-            new THREE.Vector3(1000, 0, 0),
-            new THREE.Vector3(800, 5000, 5000),
-            new THREE.Vector3(-500, 0, 10000)
-        ])
+        this.curve = new THREE.CatmullRomCurve3(this.controlPoints)
 
         // Get 100 points along the curve
         const points = this.curve.getPoints(100)

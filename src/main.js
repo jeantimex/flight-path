@@ -24,18 +24,43 @@ let currentPlane = null
 // GUI controls
 const params = {
     modelType: 'GLB',
-    planeSize: 1.0
+    planeSize: 1.0,
+    curveType: 'Original'
 }
 
 // Setup dat.GUI
 const gui = new dat.GUI()
 gui.add(params, 'modelType', ['GLB', 'SVG']).name('Model Type').onChange(switchModelType)
 gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSize)
+gui.add(params, 'curveType', ['Original', 'Circle']).name('Curve Type').onChange(switchCurveType)
+
+// Function to get curve control points based on type
+function getCurveControlPoints(type) {
+    if (type === 'Circle') {
+        const radius = 3000
+        return [
+            new THREE.Vector3(radius, 0, 0),
+            new THREE.Vector3(0, 0, radius),
+            new THREE.Vector3(-radius, 0, 0),
+            new THREE.Vector3(0, 0, -radius),
+            new THREE.Vector3(radius, 0, 0) // Close the circle
+        ]
+    } else {
+        // Original curve
+        return [
+            new THREE.Vector3(-1000, -5000, -5000),
+            new THREE.Vector3(1000, 0, 0),
+            new THREE.Vector3(800, 5000, 5000),
+            new THREE.Vector3(-500, 0, 10000)
+        ]
+    }
+}
 
 // Initialize with GLB plane
 async function initializePlane() {
     // Create the flight curve
-    flightCurve = new Curve(scene)
+    const controlPoints = getCurveControlPoints(params.curveType)
+    flightCurve = new Curve(scene, { controlPoints })
     flightCurve.create()
 
     // Create the plane
@@ -80,6 +105,30 @@ function updatePlaneOnCurve(t) {
 
     // Delegate to the plane's specific implementation
     currentPlane.updatePositionAndOrientation(flightCurve, params.planeSize, t)
+}
+
+// Function to switch between curve types
+async function switchCurveType(value) {
+    // Store current animation time to continue from same position
+    const currentTime = animationTime
+
+    // Remove current curve
+    if (flightCurve) {
+        flightCurve.remove()
+        flightCurve = null
+    }
+
+    // Create new curve
+    const controlPoints = getCurveControlPoints(value)
+    flightCurve = new Curve(scene, { controlPoints })
+    flightCurve.create()
+
+    // Restore animation time and immediately update position
+    animationTime = currentTime
+    if (currentPlane && flightCurve && flightCurve.exists()) {
+        const t = (animationTime % 1)
+        updatePlaneOnCurve(t)
+    }
 }
 
 // Function to switch between model types
