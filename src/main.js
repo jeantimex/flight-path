@@ -146,9 +146,6 @@ async function switchModelType(value) {
         await currentPlane.load()
     }
 
-    // Initialize motion with new mesh
-    motion()
-
     // Apply current scale to the new plane
     currentPlane.setScale(params.planeSize)
 
