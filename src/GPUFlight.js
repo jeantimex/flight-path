@@ -1,19 +1,19 @@
 import * as THREE from 'three'
-import { GPUPane } from './GPUPane.js'
 
 /**
- * GPUFlight combines a curve (from MergedGPUCurves) and GPUPane into a single flight unit.
- * This version uses a shared merged curves renderer for maximum performance.
+ * GPUFlight combines a curve (from MergedGPUCurves) and panes (from MergedGPUPanes) into a single flight unit.
+ * This version uses shared merged renderers for maximum performance.
  */
 export class GPUFlight {
     constructor(scene, options = {}) {
         this.scene = scene
-        this.pane = null
         this.animationTime = 0
 
-        // Reference to the merged curves renderer and this flight's index
+        // Reference to the merged renderers and this flight's indices
         this.mergedCurves = options.mergedCurves || null
         this.curveIndex = options.curveIndex !== undefined ? options.curveIndex : -1
+        this.mergedPanes = options.mergedPanes || null
+        this.paneIndex = options.paneIndex !== undefined ? options.paneIndex : -1
 
         // Curve options
         this.controlPoints = options.controlPoints || []
@@ -53,38 +53,31 @@ export class GPUFlight {
             this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
         }
 
-        // Create the pane(s)
-        this.pane = new GPUPane(this.scene, {
-            count: this.paneOptions.count,
-            paneSize: this.paneOptions.paneSize,
-            color: this.paneOptions.color
-        })
-        this.pane.create()
+        // Initialize pane in merged renderer
+        if (this.mergedPanes && this.paneIndex >= 0) {
+            // Set initial color and size
+            this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
+            this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+        }
 
         return this
     }
 
     /**
-     * Update animation for all panes on the curve
+     * Update animation for pane on the curve
      * @param {number} deltaTime - Time elapsed since last frame
      */
     update(deltaTime) {
-        if (!this._cachedCurve || !this.pane) return
+        if (!this._cachedCurve || !this.mergedPanes || this.paneIndex < 0) return
 
         // Update animation time
         this.animationTime += deltaTime * this.animationSpeed
 
-        // Update each pane instance
-        const paneCount = this.pane.getCount()
-        for (let i = 0; i < paneCount; i++) {
-            // Calculate parameter t for this pane
-            // If multiple panes, distribute them evenly along the curve
-            const offset = paneCount > 1 ? i / paneCount : 0
-            const t = ((this.animationTime + offset) % 1)
+        // Calculate parameter t for this pane (supports single pane per flight for now)
+        const t = (this.animationTime % 1)
 
-            // Update pane position on curve using cached curve
-            this.pane.updatePaneOnCurve(i, this._cachedCurve, t, 0.001, this.tiltMode)
-        }
+        // Update pane position on curve using merged panes renderer
+        this.mergedPanes.updatePaneOnCurve(this.paneIndex, this._cachedCurve, t, 0.001, this.tiltMode)
     }
 
     /**
@@ -137,8 +130,8 @@ export class GPUFlight {
      */
     setPaneColor(color) {
         this.paneOptions.color = color
-        if (this.pane) {
-            this.pane.setColor(color)
+        if (this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setPaneColor(this.paneIndex, color)
         }
     }
 
@@ -147,8 +140,8 @@ export class GPUFlight {
      */
     setPaneSize(size) {
         this.paneOptions.paneSize = size
-        if (this.pane) {
-            this.pane.setSize(size)
+        if (this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setPaneSize(this.paneIndex, size)
         }
     }
 
@@ -169,9 +162,9 @@ export class GPUFlight {
     /**
      * Set scale for a specific pane
      */
-    setPaneScale(index, scale) {
-        if (this.pane) {
-            this.pane.setScale(index, scale)
+    setPaneScale(scale) {
+        if (this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setScale(this.paneIndex, scale)
         }
     }
 
@@ -183,17 +176,17 @@ export class GPUFlight {
     }
 
     /**
-     * Get the pane object
+     * Get the pane object (returns merged panes reference for compatibility)
      */
     getPane() {
-        return this.pane
+        return this.mergedPanes
     }
 
     /**
      * Check if flight exists
      */
     exists() {
-        return this._cachedCurve !== null && this.pane !== null
+        return this._cachedCurve !== null && this.mergedPanes !== null
     }
 
     /**
@@ -205,10 +198,9 @@ export class GPUFlight {
             this.mergedCurves.hideCurve(this.curveIndex)
         }
 
-        // Remove pane
-        if (this.pane) {
-            this.pane.remove()
-            this.pane = null
+        // Hide pane in merged renderer
+        if (this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.hidePane(this.paneIndex)
         }
 
         // Clear cached curve

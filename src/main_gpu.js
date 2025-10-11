@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
 import { GPUFlight } from './GPUFlight.js'
 import { MergedGPUCurves } from './MergedGPUCurves.js'
+import { MergedGPUPanes } from './MergedGPUPanes.js'
 import { FlightUtils } from './FlightUtils.js'
 
 // Scene setup
@@ -17,6 +18,7 @@ document.querySelector('#app').appendChild(renderer.domElement)
 // Global variables
 let flights = []
 let mergedCurves = null
+let mergedPanes = null
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 100
 let preGeneratedConfigs = []
@@ -94,11 +96,13 @@ function getCurveControlPoints(type) {
 
 // Create a single flight from config
 function createFlightFromConfig(config, flightIndex) {
-    // Add merged curves reference and flight index to config
+    // Add merged renderers and indices to config
     const flightConfig = {
         ...config,
         mergedCurves: mergedCurves,
-        curveIndex: flightIndex
+        curveIndex: flightIndex,
+        mergedPanes: mergedPanes,
+        paneIndex: flightIndex
     }
     const flight = new GPUFlight(scene, flightConfig)
     flight.create()
@@ -111,9 +115,12 @@ function initializeFlights() {
     flights.forEach(flight => flight.remove())
     flights = []
 
-    // Remove old merged curves if it exists
+    // Remove old merged renderers if they exist
     if (mergedCurves) {
         mergedCurves.remove()
+    }
+    if (mergedPanes) {
+        mergedPanes.remove()
     }
 
     // Create new merged curves renderer
@@ -121,6 +128,12 @@ function initializeFlights() {
         maxCurves: MAX_FLIGHTS,
         segmentsPerCurve: params.segmentCount,
         lineWidth: params.lineWidth
+    })
+
+    // Create new merged panes renderer
+    mergedPanes = new MergedGPUPanes(scene, {
+        maxPanes: MAX_FLIGHTS,
+        baseSize: params.planeSize
     })
 
     if (params.curveType === 'Random' || params.numFlights > 1) {
@@ -148,8 +161,9 @@ function initializeFlights() {
         flights.push(flight)
     }
 
-    // Update visible curve count in merged renderer
+    // Update visible counts in merged renderers
     mergedCurves.setVisibleCurveCount(flights.length)
+    mergedPanes.setActivePaneCount(flights.length)
 }
 
 // Update flight count (preserves existing flights)
@@ -172,9 +186,12 @@ function updateFlightCount(count) {
         flightsToRemove.forEach(flight => flight.remove())
     }
 
-    // Update visible curve count in merged renderer
+    // Update visible counts in merged renderers
     if (mergedCurves) {
         mergedCurves.setVisibleCurveCount(flights.length)
+    }
+    if (mergedPanes) {
+        mergedPanes.setActivePaneCount(flights.length)
     }
 }
 
@@ -205,11 +222,19 @@ function updateSegmentCount(count) {
 // Function to update plane size
 function updatePlaneSize(size) {
     flights.forEach(flight => flight.setPaneSize(size))
+    // Apply updates to merged panes
+    if (mergedPanes && mergedPanes.geometry && mergedPanes.geometry.attributes.instanceScale) {
+        mergedPanes.geometry.attributes.instanceScale.needsUpdate = true
+    }
 }
 
 // Function to update plane color
 function updatePlaneColor(color) {
     flights.forEach(flight => flight.setPaneColor(color))
+    // Apply updates to merged panes
+    if (mergedPanes && mergedPanes.geometry && mergedPanes.geometry.attributes.instanceColor) {
+        mergedPanes.geometry.attributes.instanceColor.needsUpdate = true
+    }
 }
 
 // Pre-generate all flight configurations on startup
