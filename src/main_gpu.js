@@ -2,8 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
-import { GPUCurve } from './GPUCurve.js'
-import { GPUPane } from './GPUPane.js'
+import { GPUFlight } from './GPUFlight.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -14,10 +13,8 @@ renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
-let flightCurve
-let gpuPane
+let flight
 const clock = new THREE.Clock()
-let animationTime = 0
 
 // GUI controls
 const params = {
@@ -64,84 +61,62 @@ function getCurveControlPoints(type) {
     }
 }
 
-// Create the GPU pane (using instanced rendering)
-function createGPUPane() {
-    gpuPane = new GPUPane(scene, {
-        count: 1, // Start with 1 pane, can easily increase this later
-        paneSize: params.planeSize,
-        color: params.planeColor
-    })
-    gpuPane.create()
-}
-
-// Initialize GPU curve
-function initializeCurve() {
-    // Create the flight curve using GPU instanced rendering
+// Initialize GPU flight (curve + pane)
+function initializeFlight() {
     const controlPoints = getCurveControlPoints(params.curveType)
-    flightCurve = new GPUCurve(scene, {
+
+    flight = new GPUFlight(scene, {
         controlPoints,
-        lineWidth: params.lineWidth,
         segmentCount: params.segmentCount,
-        color: params.curveColor
+        lineWidth: params.lineWidth,
+        curveColor: params.curveColor,
+        paneCount: 1,
+        paneSize: params.planeSize,
+        paneColor: params.planeColor,
+        animationSpeed: params.animationSpeed,
+        tiltMode: params.tiltMode
     })
-    flightCurve.create()
-}
 
-// Update pane position and orientation along the curve
-function updatePaneOnCurve(t) {
-    if (!gpuPane || !flightCurve || !flightCurve.exists()) return
-
-    // Update the first pane instance (index 0) with tilt mode
-    gpuPane.updatePaneOnCurve(0, flightCurve, t, 0.001, params.tiltMode)
+    flight.create()
 }
 
 // Function to update curve color
 function updateCurveColor(color) {
-    if (flightCurve) {
-        flightCurve.setColor(color)
+    if (flight) {
+        flight.setCurveColor(color)
     }
 }
 
 // Function to update line width
 function updateLineWidth(width) {
-    if (flightCurve) {
-        flightCurve.setLineWidth(width)
+    if (flight) {
+        flight.setCurveLineWidth(width)
     }
 }
 
 // Function to update segment count
 function updateSegmentCount(count) {
-    if (flightCurve) {
-        // Recreate curve with new segment count
-        const controlPoints = getCurveControlPoints(params.curveType)
-        flightCurve.remove()
-        flightCurve = new GPUCurve(scene, {
-            controlPoints,
-            lineWidth: params.lineWidth,
-            segmentCount: count,
-            color: params.curveColor
-        })
-        flightCurve.create()
+    if (flight) {
+        flight.setCurveSegmentCount(count)
     }
 }
 
 // Function to update plane size
 function updatePlaneSize(size) {
-    if (gpuPane) {
-        gpuPane.setSize(size)
+    if (flight) {
+        flight.setPaneSize(size)
     }
 }
 
 // Function to update plane color
 function updatePlaneColor(color) {
-    if (gpuPane) {
-        gpuPane.setColor(color)
+    if (flight) {
+        flight.setPaneColor(color)
     }
 }
 
-// Initialize the curve and pane
-initializeCurve()
-createGPUPane()
+// Initialize the flight
+initializeFlight()
 
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
@@ -165,21 +140,10 @@ controls.maxPolarAngle = Math.PI
 
 // Function to switch between curve types
 function switchCurveType(value) {
-    // Remove current curve
-    if (flightCurve) {
-        flightCurve.remove()
-        flightCurve = null
+    if (flight) {
+        const controlPoints = getCurveControlPoints(value)
+        flight.setControlPoints(controlPoints)
     }
-
-    // Create new GPU curve
-    const controlPoints = getCurveControlPoints(value)
-    flightCurve = new GPUCurve(scene, {
-        controlPoints,
-        lineWidth: params.lineWidth,
-        segmentCount: params.segmentCount,
-        color: params.curveColor
-    })
-    flightCurve.create()
 }
 
 // Animation loop
@@ -188,12 +152,12 @@ function animate() {
 
     const delta = clock.getDelta()
 
-    // Update animation time
-    animationTime += delta * params.animationSpeed
-    const t = (animationTime % 1) // Loop from 0 to 1
-
-    // Update pane position and orientation
-    updatePaneOnCurve(t)
+    // Update flight (curve + pane animation)
+    if (flight) {
+        flight.setAnimationSpeed(params.animationSpeed)
+        flight.setTiltMode(params.tiltMode)
+        flight.update(delta)
+    }
 
     // Update controls
     controls.update()
