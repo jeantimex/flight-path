@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
 import { GPUFlight } from './GPUFlight.js'
+import { FlightUtils } from './FlightUtils.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -13,11 +14,14 @@ renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
-let flight
+let flights = []
 const clock = new THREE.Clock()
+const MAX_FLIGHTS = 100
+let preGeneratedConfigs = []
 
 // GUI controls
 const params = {
+    numFlights: 1,
     curveType: 'Original',
     lineWidth: 2.0,
     segmentCount: 100,
@@ -28,9 +32,32 @@ const params = {
     tiltMode: 'Perpendicular'
 }
 
+// Pre-generate flight configurations for stability
+function preGenerateFlightConfigs() {
+    console.log(`Pre-generating ${MAX_FLIGHTS} flight configurations...`)
+    preGeneratedConfigs = []
+
+    for (let i = 0; i < MAX_FLIGHTS; i++) {
+        const config = FlightUtils.generateRandomFlightConfig({
+            segmentCount: params.segmentCount,
+            tiltMode: params.tiltMode
+        })
+        preGeneratedConfigs.push(config)
+    }
+
+    console.log('Flight configurations ready!')
+}
+
+// Regenerate all pre-generated configs (for when curve type changes)
+function regenerateFlightConfigs() {
+    preGenerateFlightConfigs()
+    initializeFlights()
+}
+
 // Setup dat.GUI
 const gui = new dat.GUI()
-gui.add(params, 'curveType', ['Original', 'Circle']).name('Curve Type').onChange(switchCurveType)
+gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
+gui.add(params, 'curveType', ['Original', 'Circle', 'Random']).name('Curve Type').onChange(switchCurveType)
 gui.add(params, 'lineWidth', 0.5, 10.0).name('Line Width').onChange(updateLineWidth)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
@@ -50,6 +77,8 @@ function getCurveControlPoints(type) {
             new THREE.Vector3(0, 0, -radius),
             new THREE.Vector3(radius, 0, 0) // Close the circle
         ]
+    } else if (type === 'Random') {
+        return FlightUtils.generateRandomCurve()
     } else {
         // Original curve
         return [
@@ -61,62 +90,96 @@ function getCurveControlPoints(type) {
     }
 }
 
-// Initialize GPU flight (curve + pane)
-function initializeFlight() {
-    const controlPoints = getCurveControlPoints(params.curveType)
-
-    flight = new GPUFlight(scene, {
-        controlPoints,
-        segmentCount: params.segmentCount,
-        lineWidth: params.lineWidth,
-        curveColor: params.curveColor,
-        paneCount: 1,
-        paneSize: params.planeSize,
-        paneColor: params.planeColor,
-        animationSpeed: params.animationSpeed,
-        tiltMode: params.tiltMode
-    })
-
+// Create a single flight from config
+function createFlightFromConfig(config) {
+    const flight = new GPUFlight(scene, config)
     flight.create()
+    return flight
+}
+
+// Initialize all flights (full reset)
+function initializeFlights() {
+    // Clear existing flights
+    flights.forEach(flight => flight.remove())
+    flights = []
+
+    if (params.curveType === 'Random' || params.numFlights > 1) {
+        // Use pre-generated random configs
+        for (let i = 0; i < params.numFlights; i++) {
+            const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
+            const flight = createFlightFromConfig(config)
+            flights.push(flight)
+        }
+    } else {
+        // Single flight with GUI parameters
+        const controlPoints = getCurveControlPoints(params.curveType)
+        const config = {
+            controlPoints,
+            segmentCount: params.segmentCount,
+            lineWidth: params.lineWidth,
+            curveColor: params.curveColor,
+            paneCount: 1,
+            paneSize: params.planeSize,
+            paneColor: params.planeColor,
+            animationSpeed: params.animationSpeed,
+            tiltMode: params.tiltMode
+        }
+        const flight = createFlightFromConfig(config)
+        flights.push(flight)
+    }
+}
+
+// Update flight count (preserves existing flights)
+function updateFlightCount(count) {
+    const oldCount = flights.length
+    params.numFlights = count
+
+    if (count > oldCount) {
+        // Add new flights (starting from the beginning)
+        if (params.curveType === 'Random' || count > 1) {
+            for (let i = oldCount; i < count; i++) {
+                const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
+                const flight = createFlightFromConfig(config)
+                flights.push(flight)
+            }
+        }
+    } else if (count < oldCount) {
+        // Remove excess flights
+        const flightsToRemove = flights.splice(count)
+        flightsToRemove.forEach(flight => flight.remove())
+    }
 }
 
 // Function to update curve color
 function updateCurveColor(color) {
-    if (flight) {
-        flight.setCurveColor(color)
-    }
+    flights.forEach(flight => flight.setCurveColor(color))
 }
 
 // Function to update line width
 function updateLineWidth(width) {
-    if (flight) {
-        flight.setCurveLineWidth(width)
-    }
+    flights.forEach(flight => flight.setCurveLineWidth(width))
 }
 
 // Function to update segment count
 function updateSegmentCount(count) {
-    if (flight) {
-        flight.setCurveSegmentCount(count)
-    }
+    flights.forEach(flight => flight.setCurveSegmentCount(count))
 }
 
 // Function to update plane size
 function updatePlaneSize(size) {
-    if (flight) {
-        flight.setPaneSize(size)
-    }
+    flights.forEach(flight => flight.setPaneSize(size))
 }
 
 // Function to update plane color
 function updatePlaneColor(color) {
-    if (flight) {
-        flight.setPaneColor(color)
-    }
+    flights.forEach(flight => flight.setPaneColor(color))
 }
 
-// Initialize the flight
-initializeFlight()
+// Pre-generate all flight configurations on startup
+preGenerateFlightConfigs()
+
+// Initialize the flights
+initializeFlights()
 
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
@@ -140,9 +203,12 @@ controls.maxPolarAngle = Math.PI
 
 // Function to switch between curve types
 function switchCurveType(value) {
-    if (flight) {
-        const controlPoints = getCurveControlPoints(value)
-        flight.setControlPoints(controlPoints)
+    if (value === 'Random') {
+        // Regenerate random configs when switching to Random
+        regenerateFlightConfigs()
+    } else {
+        // Just reinitialize with new curve type
+        initializeFlights()
     }
 }
 
@@ -152,12 +218,12 @@ function animate() {
 
     const delta = clock.getDelta()
 
-    // Update flight (curve + pane animation)
-    if (flight) {
+    // Update all flights
+    flights.forEach(flight => {
         flight.setAnimationSpeed(params.animationSpeed)
         flight.setTiltMode(params.tiltMode)
         flight.update(delta)
-    }
+    })
 
     // Update controls
     controls.update()
