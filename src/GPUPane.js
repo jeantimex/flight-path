@@ -40,6 +40,7 @@ export class GPUPane {
         for (let i = 0; i < this.count; i++) {
             this.paneData.push({
                 position: new THREE.Vector3(),
+                previousPosition: new THREE.Vector3(),
                 quaternion: new THREE.Quaternion(),
                 scale: new THREE.Vector3(1, 1, 1)
             })
@@ -62,26 +63,49 @@ export class GPUPane {
     /**
      * Update a specific pane instance with position and orientation
      * @param {number} index - The index of the pane to update
-     * @param {THREE.Vector3} position - The position
-     * @param {THREE.Vector3} tangent - The tangent vector (direction)
+     * @param {THREE.Vector3} position - The new position
+     * @param {THREE.Vector3} nextPosition - The next position (optional, for forward direction calculation)
      * @param {THREE.Vector3} up - Optional up vector (defaults to world up)
      */
-    updatePane(index, position, tangent, up = new THREE.Vector3(0, 1, 0)) {
+    updatePane(index, position, nextPosition = null, up = new THREE.Vector3(0, 1, 0)) {
         if (index < 0 || index >= this.count || !this.instancedMesh) return
 
         const pane = this.paneData[index]
 
-        // Store position
+        // Calculate forward direction from position movement
+        let forward = new THREE.Vector3()
+
+        if (nextPosition) {
+            // Use next position to calculate forward direction
+            forward.subVectors(nextPosition, position).normalize()
+        } else if (pane.previousPosition.lengthSq() > 0) {
+            // Use previous position to calculate forward direction
+            forward.subVectors(position, pane.previousPosition).normalize()
+        } else {
+            // Default forward direction if no previous position
+            forward.set(0, 0, 1)
+        }
+
+        // Store previous position for next frame
+        pane.previousPosition.copy(pane.position)
+
+        // Store new position
         pane.position.copy(position)
 
-        // Calculate orientation based on tangent
-        const tangentNorm = tangent.clone().normalize()
-        const right = new THREE.Vector3().crossVectors(tangentNorm, up).normalize()
-        const newUp = new THREE.Vector3().crossVectors(right, tangentNorm).normalize()
+        // Calculate orientation: pane's normal (Z-axis) should align with forward direction
+        // For a PlaneGeometry, the normal points along the Z-axis by default
 
-        // Create rotation matrix
+        // Compute right vector (X-axis) - perpendicular to both forward and up
+        const right = new THREE.Vector3().crossVectors(up, forward).normalize()
+
+        // Recompute up vector (Y-axis) - perpendicular to both forward and right
+        // This ensures a proper orthonormal basis
+        const newUp = new THREE.Vector3().crossVectors(forward, right).normalize()
+
+        // Create rotation matrix: [right, newUp, forward] maps to [X, Y, Z] axes
+        // This makes the pane's Z-axis (normal) point in the forward direction
         const rotationMatrix = new THREE.Matrix4()
-        rotationMatrix.makeBasis(right, newUp, tangentNorm)
+        rotationMatrix.makeBasis(right, newUp, forward)
 
         // Extract quaternion from rotation matrix
         pane.quaternion.setFromRotationMatrix(rotationMatrix)
@@ -100,14 +124,20 @@ export class GPUPane {
      * @param {number} index - The index of the pane to update
      * @param {Object} curve - A curve object with getPointAt and getTangentAt methods
      * @param {number} t - Parameter along curve (0 to 1)
+     * @param {number} lookAheadDelta - How far ahead to look for forward direction (default 0.001)
      */
-    updatePaneOnCurve(index, curve, t) {
+    updatePaneOnCurve(index, curve, t, lookAheadDelta = 0.001) {
         if (!curve || !curve.exists || !curve.exists()) return
 
+        // Get current position
         const position = curve.getPointAt(t)
-        const tangent = curve.getTangentAt(t)
 
-        this.updatePane(index, position, tangent)
+        // Get next position (look slightly ahead on the curve)
+        const nextT = Math.min(1.0, t + lookAheadDelta)
+        const nextPosition = curve.getPointAt(nextT)
+
+        // Update pane with actual movement direction
+        this.updatePane(index, position, nextPosition)
     }
 
     /**
