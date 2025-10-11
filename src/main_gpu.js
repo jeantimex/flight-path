@@ -27,7 +27,8 @@ const params = {
     curveColor: 0x4488ff,
     planeSize: 100,
     planeColor: 0xff6666,
-    animationSpeed: 0.1
+    animationSpeed: 0.1,
+    tiltMode: 'Perpendicular'
 }
 
 // Setup dat.GUI
@@ -39,6 +40,7 @@ gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed')
+gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode')
 
 // Function to get curve control points based on type
 function getCurveControlPoints(type) {
@@ -89,8 +91,8 @@ function initializeCurve() {
 function updatePaneOnCurve(t) {
     if (!gpuPane || !flightCurve || !flightCurve.exists()) return
 
-    // Update the first pane instance (index 0)
-    gpuPane.updatePaneOnCurve(0, flightCurve, t)
+    // Update the first pane instance (index 0) with tilt mode
+    gpuPane.updatePaneOnCurve(0, flightCurve, t, 0.001, params.tiltMode)
 }
 
 // Function to update curve color
