@@ -91,7 +91,7 @@ export class MergedGPUPanes {
                 position: new THREE.Vector3(),
                 previousPosition: new THREE.Vector3(),
                 quaternion: new THREE.Quaternion(),
-                scale: 1.0,
+                scale: 0.0, // Start with zero scale (hidden)
                 color: new THREE.Color(0xff6666),
                 visible: false
             })
@@ -101,12 +101,12 @@ export class MergedGPUPanes {
             this.instanceColors[i * 3 + 1] = 0.4 // G
             this.instanceColors[i * 3 + 2] = 0.4 // B
 
-            // Initialize default scale
-            this.instanceScales[i] = 1.0
+            // Initialize with zero scale to hide all panes initially
+            this.instanceScales[i] = 0.0
 
-            // Initialize matrix to identity (hidden at origin)
+            // Initialize matrix with zero scale (effectively hidden)
             const matrix = new THREE.Matrix4()
-            matrix.identity()
+            matrix.makeScale(0, 0, 0)
             this.instancedMesh.setMatrixAt(i, matrix)
         }
 
