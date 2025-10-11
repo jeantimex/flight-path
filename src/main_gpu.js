@@ -55,6 +55,7 @@ async function initializeGPUPlanes() {
     // Create GPU curve visualization
     const controlPoints = getCurveControlPoints(params.curveType)
     gpuCurve = new GPUCurve(scene, { controlPoints })
+    gpuCurve.create() // Call create() to match Curve.js API
 
     // Create GPU plane system
     gpuPlane = new GPUPlane(scene, 10) // Max 10 planes

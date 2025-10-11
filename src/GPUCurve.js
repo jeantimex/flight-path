@@ -4,12 +4,21 @@ export class GPUCurve {
     constructor(scene, options = {}) {
         this.scene = scene
         this.controlPoints = options.controlPoints || []
+        this.curve = null
         this.instancedMesh = null
-        this.curveLine = null
+        this.line = null
         this.numPoints = 100 // Number of points to draw the curve
+    }
+
+    // Create the 3D spline curve and visualization (matches Curve.js API)
+    create() {
+        // Create 3D spline curve using CatmullRomCurve3
+        this.curve = new THREE.CatmullRomCurve3(this.controlPoints)
 
         this.createInstancedMesh()
         this.createCurveLine()
+
+        return this.curve
     }
 
     createInstancedMesh() {
@@ -64,29 +73,23 @@ export class GPUCurve {
     }
 
     createCurveLine() {
-        if (this.controlPoints.length < 4) return
+        if (this.controlPoints.length < 4 || !this.curve) return
 
-        // Create curve using Three.js CatmullRomCurve3
-        const curve = new THREE.CatmullRomCurve3(this.controlPoints)
-        const points = curve.getPoints(this.numPoints)
+        // Get 100 points along the curve (matches Curve.js)
+        const points = this.curve.getPoints(this.numPoints)
 
-        // Create line geometry
+        // Create line geometry for the curve visualization (matches Curve.js)
         const lineGeometry = new THREE.BufferGeometry().setFromPoints(points)
-        const lineMaterial = new THREE.LineBasicMaterial({
-            color: 0x4488ff,
-            linewidth: 2
-        })
-
-        this.curveLine = new THREE.Line(lineGeometry, lineMaterial)
-        this.scene.add(this.curveLine)
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x4488ff })
+        this.line = new THREE.Line(lineGeometry, lineMaterial)
+        this.scene.add(this.line)
     }
 
     setupCurveData() {
-        if (!this.instancedMesh || this.controlPoints.length < 4) return
+        if (!this.instancedMesh || !this.curve) return
 
-        // Use the same curve calculation as the line
-        const curve = new THREE.CatmullRomCurve3(this.controlPoints)
-        const points = curve.getPoints(this.numPoints)
+        // Use the same curve as the line
+        const points = this.curve.getPoints(this.numPoints)
 
         const geometry = this.instancedMesh.geometry
         const positionAttr = geometry.attributes.curvePosition
@@ -105,50 +108,52 @@ export class GPUCurve {
     updateControlPoints(controlPoints) {
         this.controlPoints = controlPoints
 
+        // Recreate the curve
+        this.curve = new THREE.CatmullRomCurve3(this.controlPoints)
+
         // Update instanced spheres
         if (this.instancedMesh) {
             this.setupCurveData()
         }
 
         // Update curve line
-        if (this.curveLine) {
-            this.scene.remove(this.curveLine)
+        if (this.line) {
+            this.scene.remove(this.line)
             this.createCurveLine()
         }
     }
 
-    // Get position at parameter t (0 to 1) - for compatibility with original Curve class
+    // Get position at parameter t (0 to 1) - matches Curve.js API
     getPointAt(t) {
-        if (this.controlPoints.length < 4) return new THREE.Vector3()
-
-        // Use Three.js CatmullRomCurve3 for compatibility
-        const curve = new THREE.CatmullRomCurve3(this.controlPoints)
-        return curve.getPointAt(t)
+        return this.curve ? this.curve.getPointAt(t) : new THREE.Vector3()
     }
 
-    // Get tangent vector at parameter t (0 to 1)
+    // Get tangent vector at parameter t (0 to 1) - matches Curve.js API
     getTangentAt(t) {
-        if (this.controlPoints.length < 4) return new THREE.Vector3(0, 0, 1)
-
-        const curve = new THREE.CatmullRomCurve3(this.controlPoints)
-        return curve.getTangentAt(t)
+        return this.curve ? this.curve.getTangentAt(t) : new THREE.Vector3(0, 0, 1)
     }
 
-    // Remove curve visualization from scene
+    // Get the actual curve object - matches Curve.js API
+    getCurve() {
+        return this.curve
+    }
+
+    // Remove curve visualization from scene - matches Curve.js API
     remove() {
         if (this.instancedMesh) {
             this.scene.remove(this.instancedMesh)
             this.instancedMesh = null
         }
-        if (this.curveLine) {
-            this.scene.remove(this.curveLine)
-            this.curveLine = null
+        if (this.line) {
+            this.scene.remove(this.line)
+            this.line = null
         }
+        this.curve = null
     }
 
-    // Check if curve exists
+    // Check if curve exists - matches Curve.js API
     exists() {
-        return this.instancedMesh !== null && this.controlPoints.length >= 4
+        return this.curve !== null
     }
 
     getMesh() {
