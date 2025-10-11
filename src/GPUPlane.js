@@ -16,8 +16,8 @@ export class GPUPlane {
     }
 
     createInstancedMesh() {
-        // Create shared geometry
-        const geometry = new THREE.PlaneGeometry(100, 100)
+        // Create shared geometry - make plane bigger
+        const geometry = new THREE.PlaneGeometry(500, 500)
 
         // Create shader material with GPU animation
         const material = new THREE.ShaderMaterial({
