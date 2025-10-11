@@ -140,7 +140,13 @@ function initializeFlights() {
         // Use pre-generated random configs
         for (let i = 0; i < params.numFlights; i++) {
             const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-            const flight = createFlightFromConfig(config, i)
+            // Override paneSize and paneColor with current GUI values
+            const flightConfig = {
+                ...config,
+                paneSize: params.planeSize,
+                paneColor: params.planeColor
+            }
+            const flight = createFlightFromConfig(flightConfig, i)
             flights.push(flight)
         }
     } else {
@@ -176,8 +182,21 @@ function updateFlightCount(count) {
         if (params.curveType === 'Random' || count > 1) {
             for (let i = oldCount; i < count; i++) {
                 const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-                const flight = createFlightFromConfig(config, i)
+                // Override paneSize with current GUI value
+                const flightConfig = {
+                    ...config,
+                    paneSize: params.planeSize,
+                    paneColor: params.planeColor
+                }
+                const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
+            }
+            // Apply batched updates immediately after creating flights
+            if (mergedCurves) {
+                mergedCurves.applyUpdates()
+            }
+            if (mergedPanes) {
+                mergedPanes.applyUpdates()
             }
         }
     } else if (count < oldCount) {
@@ -222,19 +241,13 @@ function updateSegmentCount(count) {
 // Function to update plane size
 function updatePlaneSize(size) {
     flights.forEach(flight => flight.setPaneSize(size))
-    // Apply updates to merged panes
-    if (mergedPanes && mergedPanes.geometry && mergedPanes.geometry.attributes.instanceScale) {
-        mergedPanes.geometry.attributes.instanceScale.needsUpdate = true
-    }
+    // Updates will be applied in animation loop via applyUpdates()
 }
 
 // Function to update plane color
 function updatePlaneColor(color) {
     flights.forEach(flight => flight.setPaneColor(color))
-    // Apply updates to merged panes
-    if (mergedPanes && mergedPanes.geometry && mergedPanes.geometry.attributes.instanceColor) {
-        mergedPanes.geometry.attributes.instanceColor.needsUpdate = true
-    }
+    // Updates will be applied in animation loop via applyUpdates()
 }
 
 // Pre-generate all flight configurations on startup
@@ -287,9 +300,12 @@ function animate() {
         flight.update(delta)
     })
 
-    // Apply any pending updates to merged curves
+    // Apply any pending updates to merged renderers
     if (mergedCurves) {
         mergedCurves.applyUpdates()
+    }
+    if (mergedPanes) {
+        mergedPanes.applyUpdates()
     }
 
     // Update controls

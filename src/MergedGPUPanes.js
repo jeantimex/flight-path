@@ -22,6 +22,8 @@ export class MergedGPUPanes {
 
         // Tracking
         this.activePanes = 0
+        this.needsColorUpdate = false
+        this.needsScaleUpdate = false
 
         // Store pane data for each instance
         this.paneData = []
@@ -219,10 +221,8 @@ export class MergedGPUPanes {
         this.instanceColors[index * 3 + 1] = pane.color.g
         this.instanceColors[index * 3 + 2] = pane.color.b
 
-        // Mark attribute for update
-        if (this.geometry.attributes.instanceColor) {
-            this.geometry.attributes.instanceColor.needsUpdate = true
-        }
+        // Mark for batched update
+        this.needsColorUpdate = true
     }
 
     /**
@@ -240,10 +240,8 @@ export class MergedGPUPanes {
         // Update instance scale attribute
         this.instanceScales[index] = normalizedScale
 
-        // Mark attribute for update
-        if (this.geometry.attributes.instanceScale) {
-            this.geometry.attributes.instanceScale.needsUpdate = true
-        }
+        // Mark for batched update
+        this.needsScaleUpdate = true
     }
 
     /**
@@ -261,10 +259,8 @@ export class MergedGPUPanes {
         // Update instance scale attribute
         this.instanceScales[index] = scaleValue
 
-        // Mark attribute for update
-        if (this.geometry.attributes.instanceScale) {
-            this.geometry.attributes.instanceScale.needsUpdate = true
-        }
+        // Mark for batched update
+        this.needsScaleUpdate = true
     }
 
     /**
@@ -335,5 +331,24 @@ export class MergedGPUPanes {
      */
     getMaxPanes() {
         return this.maxPanes
+    }
+
+    /**
+     * Apply batched updates to instance attributes
+     * Call this once per frame after all pane updates
+     */
+    applyUpdates() {
+        if (this.needsColorUpdate) {
+            if (this.geometry.attributes.instanceColor) {
+                this.geometry.attributes.instanceColor.needsUpdate = true
+            }
+            this.needsColorUpdate = false
+        }
+        if (this.needsScaleUpdate) {
+            if (this.geometry.attributes.instanceScale) {
+                this.geometry.attributes.instanceScale.needsUpdate = true
+            }
+            this.needsScaleUpdate = false
+        }
     }
 }
