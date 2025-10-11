@@ -20,7 +20,7 @@ let flights = []
 let mergedCurves = null
 let mergedPanes = null
 const clock = new THREE.Clock()
-const MAX_FLIGHTS = 100
+const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
 
 // GUI controls
