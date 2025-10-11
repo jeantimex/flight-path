@@ -147,7 +147,9 @@ export class GPUPane {
      * @param {string} tiltMode - 'Perpendicular' or 'Tangent' (default 'Perpendicular')
      */
     updatePaneOnCurve(index, curve, t, lookAheadDelta = 0.001, tiltMode = 'Perpendicular') {
-        if (!curve || !curve.exists || !curve.exists()) return
+        // Check if curve exists - support both custom curves with exists() method and standard Three.js curves
+        if (!curve) return
+        if (curve.exists && typeof curve.exists === 'function' && !curve.exists()) return
 
         // Get current position
         const position = curve.getPointAt(t)

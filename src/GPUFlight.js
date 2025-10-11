@@ -1,17 +1,19 @@
 import * as THREE from 'three'
-import { GPUCurve } from './GPUCurve.js'
 import { GPUPane } from './GPUPane.js'
 
 /**
- * GPUFlight combines a GPUCurve and GPUPane into a single flight unit.
- * This makes it easy to create and manage multiple flights with their own curves and panes.
+ * GPUFlight combines a curve (from MergedGPUCurves) and GPUPane into a single flight unit.
+ * This version uses a shared merged curves renderer for maximum performance.
  */
 export class GPUFlight {
     constructor(scene, options = {}) {
         this.scene = scene
-        this.curve = null
         this.pane = null
         this.animationTime = 0
+
+        // Reference to the merged curves renderer and this flight's index
+        this.mergedCurves = options.mergedCurves || null
+        this.curveIndex = options.curveIndex !== undefined ? options.curveIndex : -1
 
         // Curve options
         this.controlPoints = options.controlPoints || []
@@ -31,20 +33,25 @@ export class GPUFlight {
         // Animation options
         this.animationSpeed = options.animationSpeed || 0.1
         this.tiltMode = options.tiltMode || 'Perpendicular'
+
+        // Cached curve for performance
+        this._cachedCurve = null
     }
 
     /**
      * Create the curve and pane
      */
     create() {
-        // Create the curve
-        this.curve = new GPUCurve(this.scene, {
-            controlPoints: this.controlPoints,
-            segmentCount: this.curveOptions.segmentCount,
-            lineWidth: this.curveOptions.lineWidth,
-            color: this.curveOptions.color
-        })
-        this.curve.create()
+        // Register curve with merged renderer
+        if (this.mergedCurves && this.curveIndex >= 0) {
+            this.mergedCurves.setCurve(
+                this.curveIndex,
+                this.controlPoints,
+                this.curveOptions.color
+            )
+            // Create cached curve for pane animation
+            this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
+        }
 
         // Create the pane(s)
         this.pane = new GPUPane(this.scene, {
@@ -62,7 +69,7 @@ export class GPUFlight {
      * @param {number} deltaTime - Time elapsed since last frame
      */
     update(deltaTime) {
-        if (!this.curve || !this.pane) return
+        if (!this._cachedCurve || !this.pane) return
 
         // Update animation time
         this.animationTime += deltaTime * this.animationSpeed
@@ -75,8 +82,8 @@ export class GPUFlight {
             const offset = paneCount > 1 ? i / paneCount : 0
             const t = ((this.animationTime + offset) % 1)
 
-            // Update pane position on curve
-            this.pane.updatePaneOnCurve(i, this.curve, t, 0.001, this.tiltMode)
+            // Update pane position on curve using cached curve
+            this.pane.updatePaneOnCurve(i, this._cachedCurve, t, 0.001, this.tiltMode)
         }
     }
 
@@ -85,15 +92,14 @@ export class GPUFlight {
      */
     setControlPoints(controlPoints) {
         this.controlPoints = controlPoints
-        if (this.curve) {
-            this.curve.remove()
-            this.curve = new GPUCurve(this.scene, {
-                controlPoints: this.controlPoints,
-                segmentCount: this.curveOptions.segmentCount,
-                lineWidth: this.curveOptions.lineWidth,
-                color: this.curveOptions.color
-            })
-            this.curve.create()
+        if (this.mergedCurves && this.curveIndex >= 0) {
+            this.mergedCurves.setCurve(
+                this.curveIndex,
+                this.controlPoints,
+                this.curveOptions.color
+            )
+            // Update cached curve
+            this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
         }
     }
 
@@ -102,36 +108,28 @@ export class GPUFlight {
      */
     setCurveColor(color) {
         this.curveOptions.color = color
-        if (this.curve) {
-            this.curve.setColor(color)
+        if (this.mergedCurves && this.curveIndex >= 0) {
+            this.mergedCurves.setCurveColor(this.curveIndex, color)
         }
     }
 
     /**
      * Update curve line width
+     * Note: Line width is global in merged curves, this is kept for API compatibility
      */
     setCurveLineWidth(width) {
         this.curveOptions.lineWidth = width
-        if (this.curve) {
-            this.curve.setLineWidth(width)
-        }
+        // Line width is a global setting in MergedGPUCurves
     }
 
     /**
      * Update curve segment count
+     * Note: Segment count is global in merged curves, kept for API compatibility
      */
     setCurveSegmentCount(count) {
         this.curveOptions.segmentCount = count
-        if (this.curve && this.controlPoints.length > 0) {
-            this.curve.remove()
-            this.curve = new GPUCurve(this.scene, {
-                controlPoints: this.controlPoints,
-                segmentCount: count,
-                lineWidth: this.curveOptions.lineWidth,
-                color: this.curveOptions.color
-            })
-            this.curve.create()
-        }
+        // Segment count is a global setting in MergedGPUCurves
+        // To change it, you'd need to recreate the entire merged curves renderer
     }
 
     /**
@@ -178,10 +176,10 @@ export class GPUFlight {
     }
 
     /**
-     * Get the curve object
+     * Get the curve object (returns cached curve for compatibility)
      */
     getCurve() {
-        return this.curve
+        return this._cachedCurve
     }
 
     /**
@@ -195,20 +193,25 @@ export class GPUFlight {
      * Check if flight exists
      */
     exists() {
-        return this.curve !== null && this.pane !== null
+        return this._cachedCurve !== null && this.pane !== null
     }
 
     /**
      * Remove from scene and cleanup
      */
     remove() {
-        if (this.curve) {
-            this.curve.remove()
-            this.curve = null
+        // Hide curve in merged renderer
+        if (this.mergedCurves && this.curveIndex >= 0) {
+            this.mergedCurves.hideCurve(this.curveIndex)
         }
+
+        // Remove pane
         if (this.pane) {
             this.pane.remove()
             this.pane = null
         }
+
+        // Clear cached curve
+        this._cachedCurve = null
     }
 }

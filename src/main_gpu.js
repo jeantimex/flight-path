@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
 import { GPUFlight } from './GPUFlight.js'
+import { MergedGPUCurves } from './MergedGPUCurves.js'
 import { FlightUtils } from './FlightUtils.js'
 
 // Scene setup
@@ -15,6 +16,7 @@ document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
 let flights = []
+let mergedCurves = null
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 100
 let preGeneratedConfigs = []
@@ -91,8 +93,14 @@ function getCurveControlPoints(type) {
 }
 
 // Create a single flight from config
-function createFlightFromConfig(config) {
-    const flight = new GPUFlight(scene, config)
+function createFlightFromConfig(config, flightIndex) {
+    // Add merged curves reference and flight index to config
+    const flightConfig = {
+        ...config,
+        mergedCurves: mergedCurves,
+        curveIndex: flightIndex
+    }
+    const flight = new GPUFlight(scene, flightConfig)
     flight.create()
     return flight
 }
@@ -103,11 +111,23 @@ function initializeFlights() {
     flights.forEach(flight => flight.remove())
     flights = []
 
+    // Remove old merged curves if it exists
+    if (mergedCurves) {
+        mergedCurves.remove()
+    }
+
+    // Create new merged curves renderer
+    mergedCurves = new MergedGPUCurves(scene, {
+        maxCurves: MAX_FLIGHTS,
+        segmentsPerCurve: params.segmentCount,
+        lineWidth: params.lineWidth
+    })
+
     if (params.curveType === 'Random' || params.numFlights > 1) {
         // Use pre-generated random configs
         for (let i = 0; i < params.numFlights; i++) {
             const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-            const flight = createFlightFromConfig(config)
+            const flight = createFlightFromConfig(config, i)
             flights.push(flight)
         }
     } else {
@@ -124,9 +144,12 @@ function initializeFlights() {
             animationSpeed: params.animationSpeed,
             tiltMode: params.tiltMode
         }
-        const flight = createFlightFromConfig(config)
+        const flight = createFlightFromConfig(config, 0)
         flights.push(flight)
     }
+
+    // Update visible curve count in merged renderer
+    mergedCurves.setVisibleCurveCount(flights.length)
 }
 
 // Update flight count (preserves existing flights)
@@ -139,7 +162,7 @@ function updateFlightCount(count) {
         if (params.curveType === 'Random' || count > 1) {
             for (let i = oldCount; i < count; i++) {
                 const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-                const flight = createFlightFromConfig(config)
+                const flight = createFlightFromConfig(config, i)
                 flights.push(flight)
             }
         }
@@ -148,21 +171,35 @@ function updateFlightCount(count) {
         const flightsToRemove = flights.splice(count)
         flightsToRemove.forEach(flight => flight.remove())
     }
+
+    // Update visible curve count in merged renderer
+    if (mergedCurves) {
+        mergedCurves.setVisibleCurveCount(flights.length)
+    }
 }
 
 // Function to update curve color
 function updateCurveColor(color) {
     flights.forEach(flight => flight.setCurveColor(color))
+    // Apply batched updates to merged curves
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
 }
 
 // Function to update line width
 function updateLineWidth(width) {
-    flights.forEach(flight => flight.setCurveLineWidth(width))
+    // Note: Line width is global in merged curves
+    // Would need to recreate merged curves to change it
+    console.log('Line width change requires recreating curves. Use segment count or colors for dynamic changes.')
 }
 
 // Function to update segment count
 function updateSegmentCount(count) {
-    flights.forEach(flight => flight.setCurveSegmentCount(count))
+    // Note: Segment count is global in merged curves
+    // Need to recreate all curves
+    params.segmentCount = count
+    initializeFlights()
 }
 
 // Function to update plane size
@@ -224,6 +261,11 @@ function animate() {
         flight.setTiltMode(params.tiltMode)
         flight.update(delta)
     })
+
+    // Apply any pending updates to merged curves
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
 
     // Update controls
     controls.update()
