@@ -49,11 +49,9 @@ export class GPUCurve {
             false            // openEnded
         )
 
-        // Create material
+        // Create material (MeshBasicMaterial doesn't need lighting)
         const material = new THREE.MeshBasicMaterial({
-            color: this.color,
-            // Use flat shading for better performance
-            flatShading: true
+            color: this.color
         })
 
         // Create instanced mesh for all segments
