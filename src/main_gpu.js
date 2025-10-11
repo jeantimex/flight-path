@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
 import { GPUCurve } from './GPUCurve.js'
+import { GPUPane } from './GPUPane.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -14,13 +15,19 @@ document.querySelector('#app').appendChild(renderer.domElement)
 
 // Global variables
 let flightCurve
+let gpuPane
+const clock = new THREE.Clock()
+let animationTime = 0
 
 // GUI controls
 const params = {
     curveType: 'Original',
     lineWidth: 2.0,
     segmentCount: 100,
-    curveColor: 0x4488ff
+    curveColor: 0x4488ff,
+    planeSize: 100,
+    planeColor: 0xff6666,
+    animationSpeed: 0.1
 }
 
 // Setup dat.GUI
@@ -29,6 +36,9 @@ gui.add(params, 'curveType', ['Original', 'Circle']).name('Curve Type').onChange
 gui.add(params, 'lineWidth', 0.5, 10.0).name('Line Width').onChange(updateLineWidth)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
+gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
+gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
+gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed')
 
 // Function to get curve control points based on type
 function getCurveControlPoints(type) {
@@ -52,6 +62,16 @@ function getCurveControlPoints(type) {
     }
 }
 
+// Create the GPU pane (using instanced rendering)
+function createGPUPane() {
+    gpuPane = new GPUPane(scene, {
+        count: 1, // Start with 1 pane, can easily increase this later
+        paneSize: params.planeSize,
+        color: params.planeColor
+    })
+    gpuPane.create()
+}
+
 // Initialize GPU curve
 function initializeCurve() {
     // Create the flight curve using GPU instanced rendering
@@ -63,6 +83,14 @@ function initializeCurve() {
         color: params.curveColor
     })
     flightCurve.create()
+}
+
+// Update pane position and orientation along the curve
+function updatePaneOnCurve(t) {
+    if (!gpuPane || !flightCurve || !flightCurve.exists()) return
+
+    // Update the first pane instance (index 0)
+    gpuPane.updatePaneOnCurve(0, flightCurve, t)
 }
 
 // Function to update curve color
@@ -95,8 +123,23 @@ function updateSegmentCount(count) {
     }
 }
 
-// Initialize the curve
+// Function to update plane size
+function updatePlaneSize(size) {
+    if (gpuPane) {
+        gpuPane.setSize(size)
+    }
+}
+
+// Function to update plane color
+function updatePlaneColor(color) {
+    if (gpuPane) {
+        gpuPane.setColor(color)
+    }
+}
+
+// Initialize the curve and pane
 initializeCurve()
+createGPUPane()
 
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
@@ -140,6 +183,15 @@ function switchCurveType(value) {
 // Animation loop
 function animate() {
     requestAnimationFrame(animate)
+
+    const delta = clock.getDelta()
+
+    // Update animation time
+    animationTime += delta * params.animationSpeed
+    const t = (animationTime % 1) // Loop from 0 to 1
+
+    // Update pane position and orientation
+    updatePaneOnCurve(t)
 
     // Update controls
     controls.update()
