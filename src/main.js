@@ -209,7 +209,7 @@ function initializeFlights() {
             segmentCount: params.segmentCount,
             curveColor: params.curveColor,
             paneSize: params.planeSize,
-            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         }
         const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
@@ -236,7 +236,7 @@ function updateFlightCount(count) {
                     segmentCount: params.segmentCount,
                     curveColor: params.curveColor,
                     paneSize: params.planeSize,
-                    paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+                    paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -319,11 +319,11 @@ function randomizeAllFlightCurves() {
             ...randomConfig,
             controlPoints: normalizedPoints,
             segmentCount: params.segmentCount,
-            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         }
 
         flight.setControlPoints(normalizedPoints)
-        const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+        const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         flight.setPaneColor(paneColor)
     })
 
