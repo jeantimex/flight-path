@@ -30,6 +30,7 @@ const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
 
 const textureLoader = new THREE.TextureLoader()
+const PLANE_TEXTURE_URL = `${import.meta.env.BASE_URL || '/'}plane8.svg`
 let svgTexture = null
 let svgTexturePromise = null
 
@@ -207,7 +208,7 @@ function loadSvgTexture() {
     }
 
     svgTexturePromise = new Promise((resolve, reject) => {
-        textureLoader.load('/plane8.svg', (texture) => {
+        textureLoader.load(PLANE_TEXTURE_URL, (texture) => {
             texture.colorSpace = THREE.SRGBColorSpace
             texture.generateMipmaps = true
             texture.needsUpdate = true
