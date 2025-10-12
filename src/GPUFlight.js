@@ -31,6 +31,7 @@ export class GPUFlight {
 
         // Animation options
         this.animationSpeed = options.animationSpeed || 0.1
+        this.animationSpeedTarget = this.animationSpeed
         this.tiltMode = options.tiltMode || 'Perpendicular'
 
         // Cached curve for performance (used for CPU-based panes)
@@ -84,7 +85,9 @@ export class GPUFlight {
      * Note: For shader-based panes, this does nothing (GPU handles animation)
      */
     update(deltaTime) {
-        // Shader-based panes don't need per-flight updates (GPU handles everything)
+        this._applyAnimationSpeedSmoothing(deltaTime)
+
+        // Shader-based panes don't need per-flight position updates (GPU handles animation)
         if (this._isShaderBasedPanes) return
 
         // CPU-based panes need per-flight position updates
@@ -165,11 +168,33 @@ export class GPUFlight {
      * Set animation speed
      */
     setAnimationSpeed(speed) {
-        this.animationSpeed = speed
+        this.animationSpeedTarget = speed
 
-        // Update shader-based panes
         if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
             this.mergedPanes.setAnimationSpeed(this.paneIndex, speed)
+        }
+    }
+
+    _applyAnimationSpeedSmoothing(deltaTime) {
+        const difference = this.animationSpeedTarget - this.animationSpeed
+
+        if (Math.abs(difference) < 1e-5) {
+            if (this.animationSpeed !== this.animationSpeedTarget && this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
+                this.mergedPanes.setAnimationSpeed(this.paneIndex, this.animationSpeedTarget)
+            }
+            this.animationSpeed = this.animationSpeedTarget
+            return
+        }
+
+        const factor = deltaTime ? Math.min(1, deltaTime * 6) : 1
+        this.animationSpeed += difference * factor
+
+        if (Math.abs(this.animationSpeedTarget - this.animationSpeed) < 1e-4) {
+            this.animationSpeed = this.animationSpeedTarget
+        }
+
+        if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setAnimationSpeed(this.paneIndex, this.animationSpeed)
         }
     }
 

@@ -404,7 +404,22 @@ export class MergedGPUPanesShader {
     setAnimationSpeed(index, speed) {
         if (index < 0 || index >= this.maxPanes) return
 
-        this.animationParams[index * 4 + 1] = speed
+        const baseIndex = index * 4
+        const oldSpeed = this.animationParams[baseIndex + 1]
+        const oldPhase = this.animationParams[baseIndex]
+
+        const timeUniform = this.material && this.material.uniforms && this.material.uniforms.time
+            ? this.material.uniforms.time.value
+            : 0
+
+        let currentProgress = timeUniform * oldSpeed + oldPhase
+        currentProgress = currentProgress - Math.floor(currentProgress)
+
+        this.animationParams[baseIndex + 1] = speed
+
+        let newPhase = currentProgress - timeUniform * speed
+        newPhase = newPhase - Math.floor(newPhase)
+        this.animationParams[baseIndex] = newPhase
 
         this.geometry.attributes.animationParams.needsUpdate = true
     }
