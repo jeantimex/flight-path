@@ -12,6 +12,7 @@ export class PanesShader {
         this.scene = scene
         this.maxPanes = options.maxPanes || 1000
         this.baseSize = options.baseSize || 100
+        this.returnModeEnabled = !!options.returnMode
 
         // Instanced mesh
         this.instancedMesh = null
@@ -76,7 +77,8 @@ export class PanesShader {
                 time: { value: 0.0 },
                 baseSize: { value: this.baseSize },
                 paneMap: { value: null },
-                useTexture: { value: 0.0 }
+                useTexture: { value: 0.0 },
+                returnMode: { value: this.returnModeEnabled ? 1.0 : 0.0 }
             },
             vertexShader,
             fragmentShader,
@@ -171,6 +173,16 @@ export class PanesShader {
         this.geometry.attributes.controlPointsPack2.needsUpdate = true
         this.geometry.attributes.controlPointsPack3.needsUpdate = true
         this.geometry.attributes.animationParams.needsUpdate = true
+    }
+
+    /**
+     * Enable or disable return flight mode for all panes
+     */
+    setReturnMode(enabled) {
+        this.returnModeEnabled = !!enabled
+        if (this.material && this.material.uniforms && this.material.uniforms.returnMode) {
+            this.material.uniforms.returnMode.value = this.returnModeEnabled ? 1.0 : 0.0
+        }
     }
 
     /**

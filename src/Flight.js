@@ -33,6 +33,7 @@ export class Flight {
         this.animationSpeed = options.animationSpeed || 0.1
         this.animationSpeedTarget = this.animationSpeed
         this.tiltMode = options.tiltMode || 'Perpendicular'
+        this.returnFlight = options.returnFlight || false
 
         // Cached curve for performance (used for CPU-based panes)
         this._cachedCurve = null
@@ -97,10 +98,27 @@ export class Flight {
         this.animationTime += deltaTime * this.animationSpeed
 
         // Calculate parameter t for this pane (supports single pane per flight for now)
-        const t = (this.animationTime % 1)
+        let t = this.animationTime % 1
+        if (this.returnFlight) {
+            const cycle = this.animationTime % 2
+            t = cycle > 1 ? 2 - cycle : cycle
+        }
 
         // Update pane position on curve using merged panes renderer
         this.mergedPanes.updatePaneOnCurve(this.paneIndex, this._cachedCurve, t, 0.001, this.tiltMode)
+    }
+
+    /**
+     * Enable or disable return flight behaviour
+     */
+    setReturnFlight(enabled) {
+        this.returnFlight = !!enabled
+
+        if (this.returnFlight) {
+            this.animationTime = this.animationTime % 2
+        } else {
+            this.animationTime = this.animationTime % 1
+        }
     }
 
     /**

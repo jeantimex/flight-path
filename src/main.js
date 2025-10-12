@@ -47,7 +47,8 @@ const params = {
     gapSize: 40,
     randomCurveColor: false,
     randomPaneColor: false,
-    randomSpeed: false
+    randomSpeed: false,
+    returnFlight: false
 }
 
 // Pre-generate flight configurations for stability
@@ -63,6 +64,7 @@ function preGenerateFlightConfigs() {
         config.controlPoints = normalizeControlPoints(config.controlPoints)
         config._randomPaneColor = false
         config._randomSpeed = typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined
+        config.returnFlight = params.returnFlight
         preGeneratedConfigs.push(config)
     }
 }
@@ -91,6 +93,9 @@ gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
 })
 gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
     applyAnimationSpeedMode()
+})
+gui.add(params, 'returnFlight').name('Return Flight').onChange(() => {
+    applyReturnMode()
 })
 
 function normalizeControlPoints(points) {
@@ -177,6 +182,21 @@ function applyAnimationSpeedMode() {
     })
 }
 
+function applyReturnMode() {
+    preGeneratedConfigs.forEach((config, index) => {
+        if (!config) return
+        config.returnFlight = params.returnFlight
+    })
+
+    flights.forEach(flight => {
+        flight.setReturnFlight(params.returnFlight)
+    })
+
+    if (mergedPanes && typeof mergedPanes.setReturnMode === 'function') {
+        mergedPanes.setReturnMode(params.returnFlight)
+    }
+}
+
 function loadSvgTexture() {
     if (svgTexture) {
         return Promise.resolve(svgTexture)
@@ -249,6 +269,7 @@ function createFlightFromConfig(config, flightIndex) {
     // Set initial animation speed and tilt mode
     flight.setAnimationSpeed(flightConfig.animationSpeed !== undefined ? flightConfig.animationSpeed : params.animationSpeed)
     flight.setTiltMode(params.tiltMode)
+    flight.setReturnFlight(flightConfig.returnFlight)
 
     return flight
 }
@@ -278,7 +299,8 @@ function initializeFlights() {
     // Create new merged panes renderer (GPU Shader)
     mergedPanes = new PanesShader(scene, {
         maxPanes: MAX_FLIGHTS,
-        baseSize: params.planeSize
+        baseSize: params.planeSize,
+        returnMode: params.returnFlight
     })
 
     updateDashPattern()
@@ -286,6 +308,7 @@ function initializeFlights() {
 
     for (let i = 0; i < params.numFlights; i++) {
         const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+        baseConfig.returnFlight = params.returnFlight
         const flightConfig = {
             ...baseConfig,
             controlPoints: normalizeControlPoints(baseConfig.controlPoints),
@@ -293,7 +316,8 @@ function initializeFlights() {
             curveColor: resolveCurveColor(baseConfig),
             paneSize: params.planeSize,
             paneColor: resolvePaneColor(baseConfig),
-            animationSpeed: resolveAnimationSpeed(baseConfig)
+            animationSpeed: resolveAnimationSpeed(baseConfig),
+            returnFlight: params.returnFlight
         }
         const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
@@ -302,6 +326,8 @@ function initializeFlights() {
     // Update visible counts in merged renderers
     mergedCurves.setVisibleCurveCount(flights.length)
     mergedPanes.setActivePaneCount(flights.length)
+
+    applyReturnMode()
 }
 
 // Update flight count (preserves existing flights)
@@ -314,6 +340,7 @@ function updateFlightCount(count) {
         if (count > 1) {
             for (let i = oldCount; i < count; i++) {
                 const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+                baseConfig.returnFlight = params.returnFlight
                 const flightConfig = {
                     ...baseConfig,
                     controlPoints: normalizeControlPoints(baseConfig.controlPoints),
@@ -321,7 +348,8 @@ function updateFlightCount(count) {
                     curveColor: resolveCurveColor(baseConfig),
                     paneSize: params.planeSize,
                     paneColor: resolvePaneColor(baseConfig),
-                    animationSpeed: resolveAnimationSpeed(baseConfig)
+                    animationSpeed: resolveAnimationSpeed(baseConfig),
+                    returnFlight: params.returnFlight
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -415,6 +443,7 @@ function randomizeAllFlightCurves() {
         }
         updatedConfig._randomPaneColor = params.randomPaneColor
         updatedConfig._randomSpeed = params.randomSpeed ? randomConfig.animationSpeed : undefined
+        updatedConfig.returnFlight = params.returnFlight
         preGeneratedConfigs[index] = updatedConfig
 
         flight.setControlPoints(normalizedPoints)
@@ -424,6 +453,7 @@ function randomizeAllFlightCurves() {
         flight.setPaneColor(paneColor)
         const speed = resolveAnimationSpeed(updatedConfig)
         flight.setAnimationSpeed(speed)
+        flight.setReturnFlight(params.returnFlight)
     })
 
     if (mergedCurves) {

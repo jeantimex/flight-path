@@ -168,7 +168,8 @@ export class FlightUtils {
             paneSize: options.paneSize || THREE.MathUtils.randFloat(80, 150),
             paneColor: options.paneColor || this.generateRandomColor(),
             animationSpeed: options.animationSpeed || THREE.MathUtils.randFloat(0.05, 0.15),
-            tiltMode: options.tiltMode || 'Perpendicular'
+            tiltMode: options.tiltMode || 'Perpendicular',
+            returnFlight: options.returnFlight || false
         }
     }
 }

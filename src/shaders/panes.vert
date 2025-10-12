@@ -11,6 +11,7 @@ attribute vec4 animationParams; // (phase, speed, tiltMode, visible)
 // Uniforms
 uniform float time;
 uniform float baseSize;
+uniform float returnMode;
 
 // Varyings
 varying vec3 vColor;
@@ -160,11 +161,25 @@ void main() {
 
     // Calculate animation progress
     float animTime = time * speed + phase;
-    float t = mod(animTime, 1.0);
+    float cycle = mod(animTime, returnMode > 0.5 ? 2.0 : 1.0);
+    float travelDirection = 1.0;
+
+    float t;
+    if (returnMode > 0.5) {
+        if (cycle > 1.0) {
+            travelDirection = -1.0;
+            t = 2.0 - cycle;
+        } else {
+            t = cycle;
+        }
+    } else {
+        t = cycle;
+    }
 
     // Evaluate curve position and get tangent
     vec3 tangent;
     vec3 curvePosition = evaluateCatmullRom(t, tangent);
+    tangent *= travelDirection;
 
     // Default up vector
     vec3 up = vec3(0.0, 1.0, 0.0);
