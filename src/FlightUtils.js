@@ -116,7 +116,6 @@ export class FlightUtils {
         return {
             controlPoints,
             segmentCount: options.segmentCount || 100,
-            lineWidth: options.lineWidth || THREE.MathUtils.randFloat(1.5, 3.0),
             curveColor: options.curveColor || this.generateRandomColor(),
             paneCount: options.paneCount || 1,
             paneSize: options.paneSize || THREE.MathUtils.randFloat(80, 150),

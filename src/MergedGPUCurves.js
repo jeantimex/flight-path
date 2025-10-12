@@ -10,7 +10,10 @@ export class MergedGPUCurves {
         this.scene = scene
         this.maxCurves = options.maxCurves || 1000
         this.segmentsPerCurve = options.segmentsPerCurve || 100
-        this.lineWidth = options.lineWidth || 2.0
+        this.verticesPerSegment = 2
+        this.verticesPerCurve = this.segmentsPerCurve * this.verticesPerSegment
+        this.dashSize = options.dashSize !== undefined ? options.dashSize : 0
+        this.gapSize = options.gapSize !== undefined ? options.gapSize : 0
 
         // Buffer geometry for all curves
         this.geometry = null
@@ -20,11 +23,13 @@ export class MergedGPUCurves {
         // Pre-allocated buffers
         this.positions = null
         this.colors = null
+        this.lineDistances = null
 
         // Tracking
         this.currentCurveCount = 0
         this.needsPositionUpdate = false
         this.needsColorUpdate = false
+        this.needsLineDistanceUpdate = false
 
         // Store curve data for each slot
         this.curveData = []
@@ -37,16 +42,17 @@ export class MergedGPUCurves {
      */
     initialize() {
         // Calculate total points needed
-        // Each curve segment needs 2 points (line segment)
-        const totalPoints = this.maxCurves * this.segmentsPerCurve
+        const totalVertices = this.maxCurves * this.verticesPerCurve
 
         // Pre-allocate buffers
-        this.positions = new Float32Array(totalPoints * 3)
-        this.colors = new Float32Array(totalPoints * 3)
+        this.positions = new Float32Array(totalVertices * 3)
+        this.colors = new Float32Array(totalVertices * 3)
+        this.lineDistances = new Float32Array(totalVertices)
 
         // Initialize with zeros (invisible)
         this.positions.fill(0)
         this.colors.fill(0)
+        this.lineDistances.fill(0)
 
         // Create buffer geometry
         this.geometry = new THREE.BufferGeometry()
@@ -58,13 +64,13 @@ export class MergedGPUCurves {
             'color',
             new THREE.BufferAttribute(this.colors, 3)
         )
+        this.geometry.setAttribute(
+            'lineDistance',
+            new THREE.BufferAttribute(this.lineDistances, 1)
+        )
 
         // Create material with vertex colors
-        this.material = new THREE.LineBasicMaterial({
-            vertexColors: true,
-            transparent: false,
-            linewidth: this.lineWidth // Note: linewidth only works in some browsers/renderers
-        })
+        this.material = this.createMaterial()
 
         // Create line segments mesh
         this.mesh = new THREE.LineSegments(this.geometry, this.material)
@@ -113,26 +119,42 @@ export class MergedGPUCurves {
         const points = curve.getPoints(this.segmentsPerCurve)
 
         // Calculate buffer offset for this curve
-        const pointOffset = curveIndex * this.segmentsPerCurve
+        const vertexOffset = curveIndex * this.verticesPerCurve
 
-        // Fill positions and colors
-        for (let i = 0; i < points.length; i++) {
-            const bufferIndex = (pointOffset + i) * 3
+        let distance = 0
 
-            // Set position
-            this.positions[bufferIndex] = points[i].x
-            this.positions[bufferIndex + 1] = points[i].y
-            this.positions[bufferIndex + 2] = points[i].z
+        for (let segmentIndex = 0; segmentIndex < this.segmentsPerCurve; segmentIndex++) {
+            const startPoint = points[segmentIndex]
+            const endPoint = points[segmentIndex + 1]
+            const vertexIndex = vertexOffset + segmentIndex * this.verticesPerSegment
+            const bufferIndex = vertexIndex * 3
 
-            // Set color (same color for all vertices in this curve)
+            this.positions[bufferIndex] = startPoint.x
+            this.positions[bufferIndex + 1] = startPoint.y
+            this.positions[bufferIndex + 2] = startPoint.z
+
+            this.positions[bufferIndex + 3] = endPoint.x
+            this.positions[bufferIndex + 4] = endPoint.y
+            this.positions[bufferIndex + 5] = endPoint.z
+
+            // Colors duplicated per segment
             this.colors[bufferIndex] = curveData.color.r
             this.colors[bufferIndex + 1] = curveData.color.g
             this.colors[bufferIndex + 2] = curveData.color.b
+
+            this.colors[bufferIndex + 3] = curveData.color.r
+            this.colors[bufferIndex + 4] = curveData.color.g
+            this.colors[bufferIndex + 5] = curveData.color.b
+
+            this.lineDistances[vertexIndex] = distance
+            distance += startPoint.distanceTo(endPoint)
+            this.lineDistances[vertexIndex + 1] = distance
         }
 
         // Mark for update
         this.needsPositionUpdate = true
         this.needsColorUpdate = true
+        this.needsLineDistanceUpdate = true
 
         // Update curve count if needed
         if (curveIndex >= this.currentCurveCount) {
@@ -155,12 +177,12 @@ export class MergedGPUCurves {
         curveData.color = color instanceof THREE.Color ? color : new THREE.Color(color)
 
         // Update color buffer
-        const pointOffset = curveIndex * this.segmentsPerCurve
-        for (let i = 0; i < this.segmentsPerCurve; i++) {
-            const bufferIndex = (pointOffset + i) * 3
-            this.colors[bufferIndex] = curveData.color.r
-            this.colors[bufferIndex + 1] = curveData.color.g
-            this.colors[bufferIndex + 2] = curveData.color.b
+        const vertexOffset = curveIndex * this.verticesPerCurve * 3
+        const totalVertices = this.verticesPerCurve * 3
+        for (let i = 0; i < totalVertices; i += 3) {
+            this.colors[vertexOffset + i] = curveData.color.r
+            this.colors[vertexOffset + i + 1] = curveData.color.g
+            this.colors[vertexOffset + i + 2] = curveData.color.b
         }
 
         this.needsColorUpdate = true
@@ -177,15 +199,18 @@ export class MergedGPUCurves {
         curveData.visible = false
 
         // Set all positions to zero (effectively hiding it)
-        const pointOffset = curveIndex * this.segmentsPerCurve
-        for (let i = 0; i < this.segmentsPerCurve; i++) {
-            const bufferIndex = (pointOffset + i) * 3
-            this.positions[bufferIndex] = 0
-            this.positions[bufferIndex + 1] = 0
-            this.positions[bufferIndex + 2] = 0
+        const vertexOffset = curveIndex * this.verticesPerCurve * 3
+        const totalVertices = this.verticesPerCurve * 3
+        for (let i = 0; i < totalVertices; i++) {
+            this.positions[vertexOffset + i] = 0
+        }
+        const distanceOffset = curveIndex * this.verticesPerCurve
+        for (let i = 0; i < this.verticesPerCurve; i++) {
+            this.lineDistances[distanceOffset + i] = 0
         }
 
         this.needsPositionUpdate = true
+        this.needsLineDistanceUpdate = true
     }
 
     /**
@@ -201,8 +226,8 @@ export class MergedGPUCurves {
      * Update the draw range based on current curve count
      */
     updateDrawRange() {
-        const visiblePoints = this.currentCurveCount * this.segmentsPerCurve
-        this.geometry.setDrawRange(0, visiblePoints)
+        const visibleVertices = this.currentCurveCount * this.verticesPerCurve
+        this.geometry.setDrawRange(0, visibleVertices)
     }
 
     /**
@@ -217,6 +242,14 @@ export class MergedGPUCurves {
         if (this.needsColorUpdate) {
             this.geometry.attributes.color.needsUpdate = true
             this.needsColorUpdate = false
+        }
+        if (this.dashSize > 0 && this.needsLineDistanceUpdate) {
+            if (this.geometry.attributes.lineDistance) {
+                this.geometry.attributes.lineDistance.needsUpdate = true
+            }
+            this.needsLineDistanceUpdate = false
+        } else if (this.dashSize === 0) {
+            this.needsLineDistanceUpdate = false
         }
     }
 
@@ -294,5 +327,51 @@ export class MergedGPUCurves {
      */
     getCurrentCurveCount() {
         return this.currentCurveCount
+    }
+
+    /**
+     * Update dash pattern for all curves
+     * @param {number} dashSize - Length of visible dash
+     * @param {number} gapSize - Length of gap between dashes
+     */
+    setDashPattern(dashSize, gapSize) {
+        const nextDash = Math.max(0, dashSize)
+        const nextGap = Math.max(0, gapSize)
+
+        if (this.dashSize === nextDash && this.gapSize === nextGap) return
+
+        this.dashSize = nextDash
+        this.gapSize = nextGap
+        this.updateMaterial()
+    }
+
+    createMaterial() {
+        if (this.dashSize > 0) {
+            return new THREE.LineDashedMaterial({
+                vertexColors: true,
+                dashSize: this.dashSize,
+                gapSize: Math.max(this.gapSize, 1e-4)
+            })
+        }
+
+        return new THREE.LineBasicMaterial({
+            vertexColors: true
+        })
+    }
+
+    updateMaterial() {
+        if (!this.mesh) return
+
+        if (this.material) {
+            this.material.dispose()
+        }
+
+        this.material = this.createMaterial()
+        this.mesh.material = this.material
+        this.mesh.material.needsUpdate = true
+
+        if (this.dashSize > 0) {
+            this.needsLineDistanceUpdate = true
+        }
     }
 }

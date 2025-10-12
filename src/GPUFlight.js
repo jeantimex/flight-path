@@ -19,7 +19,6 @@ export class GPUFlight {
         this.controlPoints = options.controlPoints || []
         this.curveOptions = {
             segmentCount: options.segmentCount || 100,
-            lineWidth: options.lineWidth || 2.0,
             color: options.curveColor || 0x4488ff
         }
 
@@ -130,15 +129,6 @@ export class GPUFlight {
         if (this.mergedCurves && this.curveIndex >= 0) {
             this.mergedCurves.setCurveColor(this.curveIndex, color)
         }
-    }
-
-    /**
-     * Update curve line width
-     * Note: Line width is global in merged curves, this is kept for API compatibility
-     */
-    setCurveLineWidth(width) {
-        this.curveOptions.lineWidth = width
-        // Line width is a global setting in MergedGPUCurves
     }
 
     /**

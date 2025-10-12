@@ -33,14 +33,15 @@ let preGeneratedConfigs = []
 // GUI controls
 const params = {
     numFlights: 1,
-    lineWidth: 2.0,
     segmentCount: 100,
     curveColor: 0x4488ff,
     planeSize: 100,
     planeColor: 0xff6666,
     animationSpeed: 0.1,
     tiltMode: 'Perpendicular',
-    useGPUShader: true // Toggle between CPU and GPU shader-based panes
+    useGPUShader: true, // Toggle between CPU and GPU shader-based panes
+    dashSize: 40,
+    gapSize: 40
 }
 
 // Pre-generate flight configurations for stability
@@ -64,7 +65,6 @@ gui.add(params, 'useGPUShader').name('Use GPU Shader').onChange(() => {
     initializeFlights()
 })
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
-gui.add(params, 'lineWidth', 0.5, 10.0).name('Line Width').onChange(updateLineWidth)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
@@ -75,6 +75,8 @@ gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange((v
 gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
     flights.forEach(flight => flight.setTiltMode(value))
 })
+gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
+gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 
 function normalizeControlPoints(points) {
     const sourcePoints = points && points.length ? cloneControlPoints(points) : []
@@ -140,7 +142,8 @@ function initializeFlights() {
     mergedCurves = new MergedGPUCurves(scene, {
         maxCurves: MAX_FLIGHTS,
         segmentsPerCurve: params.segmentCount,
-        lineWidth: params.lineWidth
+        dashSize: params.dashSize,
+        gapSize: params.gapSize
     })
 
     // Create new merged panes renderer (GPU Shader or CPU-based)
@@ -156,12 +159,14 @@ function initializeFlights() {
         })
     }
 
+    updateDashPattern()
+
     for (let i = 0; i < params.numFlights; i++) {
         const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
         const flightConfig = {
             ...baseConfig,
             controlPoints: normalizeControlPoints(baseConfig.controlPoints),
-            lineWidth: params.lineWidth,
+            segmentCount: params.segmentCount,
             curveColor: params.curveColor,
             paneSize: params.planeSize,
             paneColor: params.planeColor
@@ -188,7 +193,7 @@ function updateFlightCount(count) {
                 const flightConfig = {
                     ...baseConfig,
                     controlPoints: normalizeControlPoints(baseConfig.controlPoints),
-                    lineWidth: params.lineWidth,
+                    segmentCount: params.segmentCount,
                     curveColor: params.curveColor,
                     paneSize: params.planeSize,
                     paneColor: params.planeColor
@@ -229,12 +234,6 @@ function updateCurveColor(color) {
     }
 }
 
-// Function to update line width
-function updateLineWidth(width) {
-    // Note: Line width is global in merged curves
-    // Would need to recreate merged curves to change it
-}
-
 // Function to update segment count
 function updateSegmentCount(count) {
     // Note: Segment count is global in merged curves
@@ -256,6 +255,13 @@ function updatePlaneColor(color) {
     // Updates will be applied in animation loop via applyUpdates()
 }
 
+function updateDashPattern() {
+    if (mergedCurves) {
+        mergedCurves.setDashPattern(params.dashSize, params.gapSize)
+        mergedCurves.applyUpdates()
+    }
+}
+
 function randomizeAllFlightCurves() {
     flights.forEach((flight, index) => {
         const randomConfig = FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
@@ -265,7 +271,8 @@ function randomizeAllFlightCurves() {
         preGeneratedConfigs[index] = {
             ...existingConfig,
             ...randomConfig,
-            controlPoints: normalizedPoints
+            controlPoints: normalizedPoints,
+            segmentCount: params.segmentCount
         }
 
         flight.setControlPoints(normalizedPoints)
