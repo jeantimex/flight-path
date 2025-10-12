@@ -5,76 +5,123 @@ import * as THREE from 'three'
  */
 export class FlightUtils {
     /**
-     * Generate random control points for a smooth curve
+     * Generate a random point inside a sphere centered at the origin.
+     * @param {number} radius - Sphere radius
+     * @returns {THREE.Vector3}
+     */
+    static randomPointInSphere(radius) {
+        const u = Math.random()
+        const v = Math.random()
+        const theta = 2 * Math.PI * u
+        const phi = Math.acos(2 * v - 1)
+        const r = radius * Math.cbrt(Math.random())
+        const sinPhi = Math.sin(phi)
+
+        return new THREE.Vector3(
+            r * sinPhi * Math.cos(theta),
+            r * sinPhi * Math.sin(theta),
+            r * Math.cos(phi)
+        )
+    }
+
+    /**
+     * Clamp a vector to lie within a sphere.
+     * @param {THREE.Vector3} vector - Vector to clamp (mutated in place)
+     * @param {number} radius - Sphere radius
+     * @param {THREE.Vector3} center - Sphere center
+     * @returns {THREE.Vector3}
+     */
+    static clampToSphere(vector, radius, center) {
+        const offset = vector.clone().sub(center)
+        const radiusSq = radius * radius
+
+        if (offset.lengthSq() > radiusSq) {
+            offset.setLength(radius)
+            vector.copy(offset.add(center))
+        }
+
+        return vector
+    }
+
+    /**
+     * Infer a sphere radius from legacy bounds configuration.
+     * @param {Object|undefined} bounds
+     * @returns {number}
+     */
+    static inferRadiusFromBounds(bounds) {
+        if (!bounds) {
+            return 3000
+        }
+
+        const maxX = Math.max(Math.abs(bounds.minX ?? 0), Math.abs(bounds.maxX ?? 0))
+        const maxY = Math.max(Math.abs(bounds.minY ?? 0), Math.abs(bounds.maxY ?? 0))
+        const maxZ = Math.max(Math.abs(bounds.minZ ?? 0), Math.abs(bounds.maxZ ?? 0))
+
+        return Math.sqrt(maxX * maxX + maxY * maxY + maxZ * maxZ)
+    }
+
+    /**
+     * Infer the sphere center from legacy bounds configuration.
+     * @param {Object|undefined} bounds
+     * @returns {THREE.Vector3}
+     */
+    static inferCenterFromBounds(bounds) {
+        if (!bounds) {
+            return new THREE.Vector3()
+        }
+
+        return new THREE.Vector3(
+            ((bounds.minX ?? 0) + (bounds.maxX ?? 0)) * 0.5,
+            ((bounds.minY ?? 0) + (bounds.maxY ?? 0)) * 0.5,
+            ((bounds.minZ ?? 0) + (bounds.maxZ ?? 0)) * 0.5
+        )
+    }
+
+    /**
+     * Generate random control points for a smooth curve inside a sphere.
      * @param {Object} options - Configuration options
-     * @param {THREE.Vector3} options.start - Start position (optional, random if not provided)
-     * @param {THREE.Vector3} options.end - End position (optional, random if not provided)
+     * @param {THREE.Vector3} options.start - Start position (optional, random inside sphere if not provided)
+     * @param {THREE.Vector3} options.end - End position (optional, random inside sphere if not provided)
      * @param {number} options.numControlPoints - Number of intermediate control points (default: 2-4 random)
-     * @param {number} options.spread - How far control points can deviate from the line (default: 2000)
-     * @param {Object} options.bounds - Bounding box for random positions
+     * @param {number} options.spread - Radius of random offset applied to intermediate points (default: 60% of sphere radius)
+     * @param {number} options.radius - Radius of the sphere containing the curve (default: 3000 or inferred from bounds)
+     * @param {THREE.Vector3} options.center - Center of the sphere (default: origin or inferred from bounds)
+     * @param {Object} options.bounds - Legacy bounding box config (used to infer radius/center if provided)
      * @returns {Array<THREE.Vector3>} Array of control points including start and end
      */
     static generateRandomCurve(options = {}) {
-        const bounds = options.bounds || {
-            minX: -3000, maxX: 3000,
-            minY: -2000, maxY: 2000,
-            minZ: -3000, maxZ: 3000
-        }
+        const center = options.center
+            ? options.center.clone()
+            : this.inferCenterFromBounds(options.bounds)
 
-        // Generate random start point if not provided
-        const start = options.start || new THREE.Vector3(
-            THREE.MathUtils.randFloat(bounds.minX, bounds.maxX),
-            THREE.MathUtils.randFloat(bounds.minY, bounds.maxY),
-            THREE.MathUtils.randFloat(bounds.minZ, bounds.maxZ)
+        const radius = options.radius !== undefined
+            ? options.radius
+            : this.inferRadiusFromBounds(options.bounds)
+
+        const spread = Math.min(
+            options.spread !== undefined ? options.spread : radius * 0.6,
+            radius
         )
 
-        // Generate random end point if not provided
-        const end = options.end || new THREE.Vector3(
-            THREE.MathUtils.randFloat(bounds.minX, bounds.maxX),
-            THREE.MathUtils.randFloat(bounds.minY, bounds.maxY),
-            THREE.MathUtils.randFloat(bounds.minZ, bounds.maxZ)
-        )
+        const start = options.start ? options.start.clone() : this.randomPointInSphere(radius).add(center)
+        this.clampToSphere(start, radius, center)
 
-        // Determine number of intermediate control points
+        const end = options.end ? options.end.clone() : this.randomPointInSphere(radius).add(center)
+        this.clampToSphere(end, radius, center)
+
         const numControlPoints = options.numControlPoints !== undefined
             ? options.numControlPoints
             : Math.floor(THREE.MathUtils.randFloat(2, 5))
 
-        // Calculate the spread (how far points can deviate)
-        const spread = options.spread || 2000
-
         const controlPoints = [start]
 
-        // Generate intermediate control points along the path
         for (let i = 1; i <= numControlPoints; i++) {
             const t = i / (numControlPoints + 1)
-
-            // Interpolate between start and end
             const basePoint = new THREE.Vector3().lerpVectors(start, end, t)
+            const offset = this.randomPointInSphere(spread)
+            const controlPoint = basePoint.add(offset)
 
-            // Add random deviation perpendicular to the line
-            const direction = new THREE.Vector3().subVectors(end, start).normalize()
-            const up = new THREE.Vector3(0, 1, 0)
-
-            // Create perpendicular vectors
-            const right = new THREE.Vector3().crossVectors(direction, up).normalize()
-            const perpUp = new THREE.Vector3().crossVectors(right, direction).normalize()
-
-            // Add random offset in perpendicular directions
-            const offsetRight = THREE.MathUtils.randFloat(-spread, spread)
-            const offsetUp = THREE.MathUtils.randFloat(-spread, spread)
-            const offsetForward = THREE.MathUtils.randFloat(-spread * 0.5, spread * 0.5)
-
-            const controlPoint = basePoint.clone()
-                .add(right.multiplyScalar(offsetRight))
-                .add(perpUp.multiplyScalar(offsetUp))
-                .add(direction.multiplyScalar(offsetForward))
-
-            // Clamp to bounds
-            controlPoint.x = THREE.MathUtils.clamp(controlPoint.x, bounds.minX, bounds.maxX)
-            controlPoint.y = THREE.MathUtils.clamp(controlPoint.y, bounds.minY, bounds.maxY)
-            controlPoint.z = THREE.MathUtils.clamp(controlPoint.z, bounds.minZ, bounds.maxZ)
-
+            this.clampToSphere(controlPoint, radius, center)
             controlPoints.push(controlPoint)
         }
 
