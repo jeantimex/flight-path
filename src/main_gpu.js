@@ -30,15 +30,6 @@ const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
 
-const DEFAULT_CONTROL_POINTS = [
-    new THREE.Vector3(-1000, -5000, -5000),
-    new THREE.Vector3(1000, 0, 0),
-    new THREE.Vector3(800, 5000, 5000),
-    new THREE.Vector3(-500, 0, 10000)
-]
-
-let customControlPoints = null
-
 // GUI controls
 const params = {
     numFlights: 1,
@@ -86,7 +77,7 @@ gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onCh
 })
 
 function normalizeControlPoints(points) {
-    const sourcePoints = points && points.length ? cloneControlPoints(points) : cloneControlPoints(DEFAULT_CONTROL_POINTS)
+    const sourcePoints = points && points.length ? cloneControlPoints(points) : []
     if (sourcePoints.length === 4) {
         return sourcePoints
     }
@@ -102,19 +93,13 @@ function normalizeControlPoints(points) {
 
 const curveActions = {
     randomizeCurve() {
-        const randomPoints = FlightUtils.generateRandomCurve({ numControlPoints: 2 })
-        customControlPoints = normalizeControlPoints(randomPoints)
-        initializeFlights()
+        randomizeAllFlightCurves()
     }
 }
-gui.add(curveActions, 'randomizeCurve').name('Randomize First Curve')
+gui.add(curveActions, 'randomizeCurve').name('Randomize All Curves')
 
 function cloneControlPoints(points) {
     return points.map(point => point.clone())
-}
-
-function getPrimaryControlPoints() {
-    return normalizeControlPoints(customControlPoints || DEFAULT_CONTROL_POINTS)
 }
 
 // Create a single flight from config
@@ -171,47 +156,17 @@ function initializeFlights() {
         })
     }
 
-    if (params.numFlights > 1) {
-        // Use pre-generated random configs
-        for (let i = 0; i < params.numFlights; i++) {
-            const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-            // Override paneSize and paneColor with current GUI values
-            let flightConfig = {
-                ...config,
-                paneSize: params.planeSize,
-                paneColor: params.planeColor
-            }
-            if (i === 0 && customControlPoints) {
-                flightConfig = {
-                    ...flightConfig,
-                    controlPoints: getPrimaryControlPoints(),
-                    segmentCount: params.segmentCount,
-                    lineWidth: params.lineWidth,
-                    curveColor: params.curveColor
-                }
-            }
-            flightConfig = {
-                ...flightConfig,
-                controlPoints: normalizeControlPoints(flightConfig.controlPoints)
-            }
-            const flight = createFlightFromConfig(flightConfig, i)
-            flights.push(flight)
-        }
-    } else {
-        // Single flight with GUI parameters
-        const controlPoints = getPrimaryControlPoints()
-        const config = {
-            controlPoints,
-            segmentCount: params.segmentCount,
+    for (let i = 0; i < params.numFlights; i++) {
+        const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+        const flightConfig = {
+            ...baseConfig,
+            controlPoints: normalizeControlPoints(baseConfig.controlPoints),
             lineWidth: params.lineWidth,
             curveColor: params.curveColor,
-            paneCount: 1,
             paneSize: params.planeSize,
-            paneColor: params.planeColor,
-            animationSpeed: params.animationSpeed,
-            tiltMode: params.tiltMode
+            paneColor: params.planeColor
         }
-        const flight = createFlightFromConfig(config, 0)
+        const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
     }
 
@@ -229,25 +184,14 @@ function updateFlightCount(count) {
         // Add new flights (starting from the beginning)
         if (count > 1) {
             for (let i = oldCount; i < count; i++) {
-                const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
-                // Override paneSize with current GUI value
-                let flightConfig = {
-                    ...config,
+                const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+                const flightConfig = {
+                    ...baseConfig,
+                    controlPoints: normalizeControlPoints(baseConfig.controlPoints),
+                    lineWidth: params.lineWidth,
+                    curveColor: params.curveColor,
                     paneSize: params.planeSize,
                     paneColor: params.planeColor
-                }
-                if (i === 0 && customControlPoints) {
-                    flightConfig = {
-                        ...flightConfig,
-                        controlPoints: getPrimaryControlPoints(),
-                        segmentCount: params.segmentCount,
-                        lineWidth: params.lineWidth,
-                        curveColor: params.curveColor
-                    }
-                }
-                flightConfig = {
-                    ...flightConfig,
-                    controlPoints: normalizeControlPoints(flightConfig.controlPoints)
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -310,6 +254,29 @@ function updatePlaneSize(size) {
 function updatePlaneColor(color) {
     flights.forEach(flight => flight.setPaneColor(color))
     // Updates will be applied in animation loop via applyUpdates()
+}
+
+function randomizeAllFlightCurves() {
+    flights.forEach((flight, index) => {
+        const randomConfig = FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+        const normalizedPoints = normalizeControlPoints(randomConfig.controlPoints)
+
+        const existingConfig = preGeneratedConfigs[index] || {}
+        preGeneratedConfigs[index] = {
+            ...existingConfig,
+            ...randomConfig,
+            controlPoints: normalizedPoints
+        }
+
+        flight.setControlPoints(normalizedPoints)
+    })
+
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
+    if (mergedPanes && !params.useGPUShader) {
+        mergedPanes.applyUpdates()
+    }
 }
 
 // Pre-generate all flight configurations on startup

@@ -115,6 +115,11 @@ export class GPUFlight {
             // Update cached curve
             this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
         }
+
+        if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
+            const fourPoints = this.resampleTo4Points(this.controlPoints)
+            this.mergedPanes.setCurveControlPoints(this.paneIndex, fourPoints)
+        }
     }
 
     /**
