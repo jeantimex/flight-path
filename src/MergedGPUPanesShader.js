@@ -185,25 +185,26 @@ export class MergedGPUPanesShader {
 
                     if (tiltMode < 0.5) {
                         // Perpendicular mode: pane normal aligns with forward
+                        // GLSL matrices are column-major: mat4(col0, col1, col2, col3)
                         rotationMatrix = mat4(
-                            right.x, newUp.x, normalizedForward.x, 0.0,
-                            right.y, newUp.y, normalizedForward.y, 0.0,
-                            right.z, newUp.z, normalizedForward.z, 0.0,
-                            0.0, 0.0, 0.0, 1.0
+                            right.x, right.y, right.z, 0.0,              // Column 0 (X axis)
+                            newUp.x, newUp.y, newUp.z, 0.0,              // Column 1 (Y axis)
+                            normalizedForward.x, normalizedForward.y, normalizedForward.z, 0.0,  // Column 2 (Z axis)
+                            0.0, 0.0, 0.0, 1.0                           // Column 3 (translation)
                         );
                     } else {
                         // Tangent mode: pane lies along forward direction (rotated 90 degrees)
                         rotationMatrix = mat4(
-                            right.x, newUp.x, normalizedForward.x, 0.0,
-                            right.y, newUp.y, normalizedForward.y, 0.0,
-                            right.z, newUp.z, normalizedForward.z, 0.0,
+                            right.x, right.y, right.z, 0.0,
+                            newUp.x, newUp.y, newUp.z, 0.0,
+                            normalizedForward.x, normalizedForward.y, normalizedForward.z, 0.0,
                             0.0, 0.0, 0.0, 1.0
                         );
                         // Apply 90-degree rotation around X-axis
                         mat4 tiltRotation = mat4(
                             1.0, 0.0, 0.0, 0.0,
-                            0.0, 0.0, -1.0, 0.0,
-                            0.0, 1.0, 0.0, 0.0,
+                            0.0, 0.0, 1.0, 0.0,
+                            0.0, -1.0, 0.0, 0.0,
                             0.0, 0.0, 0.0, 1.0
                         );
                         rotationMatrix = rotationMatrix * tiltRotation;
