@@ -45,6 +45,7 @@ const params = {
     paneStyle: 'Pane',
     dashSize: 40,
     gapSize: 40,
+    randomCurveColor: false,
     randomPaneColor: false
 }
 
@@ -59,6 +60,7 @@ function preGenerateFlightConfigs() {
             numControlPoints: 2
         })
         config.controlPoints = normalizeControlPoints(config.controlPoints)
+        config._randomPaneColor = false
         preGeneratedConfigs.push(config)
     }
 }
@@ -79,8 +81,11 @@ gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onCh
 gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
-gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
+gui.add(params, 'randomCurveColor').name('Random Curve Color').onChange(() => {
     applyCurveColorMode()
+})
+gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
+    applyPaneColorMode()
 })
 
 function normalizeControlPoints(points) {
@@ -99,7 +104,7 @@ function normalizeControlPoints(points) {
 }
 
 function resolveCurveColor(config = {}) {
-    if (params.randomPaneColor) {
+    if (params.randomCurveColor) {
         if (!config.curveColor) {
             config.curveColor = FlightUtils.generateRandomColor()
         }
@@ -111,13 +116,41 @@ function resolveCurveColor(config = {}) {
 function applyCurveColorMode() {
     flights.forEach((flight, index) => {
         const config = preGeneratedConfigs[index] || {}
-        const color = params.randomPaneColor ? resolveCurveColor(config) : params.curveColor
+        const color = params.randomCurveColor ? resolveCurveColor(config) : params.curveColor
         flight.setCurveColor(color)
     })
 
     if (mergedCurves) {
         mergedCurves.applyUpdates()
     }
+}
+
+function resolvePaneColor(config = {}) {
+    if (params.paneStyle === 'SVG') {
+        config._randomPaneColor = false
+        config.paneColor = 0xffffff
+        return config.paneColor
+    }
+
+    if (params.randomPaneColor) {
+        if (!config._randomPaneColor) {
+            config.paneColor = FlightUtils.generateRandomColor()
+            config._randomPaneColor = true
+        }
+        return config.paneColor
+    }
+
+    config._randomPaneColor = false
+    config.paneColor = params.planeColor
+    return config.paneColor
+}
+
+function applyPaneColorMode() {
+    flights.forEach((flight, index) => {
+        const config = preGeneratedConfigs[index] || {}
+        const color = resolvePaneColor(config)
+        flight.setPaneColor(color)
+    })
 }
 
 function loadSvgTexture() {
@@ -235,7 +268,7 @@ function initializeFlights() {
             segmentCount: params.segmentCount,
             curveColor: resolveCurveColor(baseConfig),
             paneSize: params.planeSize,
-            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
+            paneColor: resolvePaneColor(baseConfig)
         }
         const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
@@ -262,7 +295,7 @@ function updateFlightCount(count) {
                     segmentCount: params.segmentCount,
                     curveColor: resolveCurveColor(baseConfig),
                     paneSize: params.planeSize,
-                    paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
+                    paneColor: resolvePaneColor(baseConfig)
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -289,7 +322,7 @@ function updateFlightCount(count) {
 
 // Function to update curve color
 function updateCurveColor(color) {
-    if (params.randomPaneColor) {
+    if (params.randomCurveColor) {
         params.curveColor = color
         return
     }
@@ -318,11 +351,17 @@ function updatePlaneSize(size) {
 
 // Function to update plane color
 function updatePlaneColor(color) {
+    params.planeColor = color
+
     if (params.paneStyle === 'SVG') {
         return
     }
-    flights.forEach(flight => flight.setPaneColor(color))
-    // Updates will be applied in animation loop via applyUpdates()
+
+    if (params.randomPaneColor) {
+        return
+    }
+
+    applyPaneColorMode()
 }
 
 function updateDashPattern() {
@@ -345,19 +384,20 @@ function randomizeAllFlightCurves() {
         const normalizedPoints = normalizeControlPoints(randomConfig.controlPoints)
 
         const existingConfig = preGeneratedConfigs[index] || {}
-        preGeneratedConfigs[index] = {
+        const updatedConfig = {
             ...existingConfig,
             ...randomConfig,
             controlPoints: normalizedPoints,
             segmentCount: params.segmentCount,
             curveColor: randomConfig.curveColor,
-            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         }
+        updatedConfig._randomPaneColor = params.randomPaneColor
+        preGeneratedConfigs[index] = updatedConfig
 
         flight.setControlPoints(normalizedPoints)
-        const curveColor = resolveCurveColor(preGeneratedConfigs[index])
+        const curveColor = resolveCurveColor(updatedConfig)
         flight.setCurveColor(curveColor)
-        const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
+        const paneColor = resolvePaneColor(updatedConfig)
         flight.setPaneColor(paneColor)
     })
 
