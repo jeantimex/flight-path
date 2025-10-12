@@ -73,8 +73,12 @@ gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(upda
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
-gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed')
-gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode')
+gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange((value) => {
+    flights.forEach(flight => flight.setAnimationSpeed(value))
+})
+gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
+    flights.forEach(flight => flight.setTiltMode(value))
+})
 
 // Function to get curve control points based on type
 function getCurveControlPoints(type) {
@@ -112,6 +116,11 @@ function createFlightFromConfig(config, flightIndex) {
     }
     const flight = new GPUFlight(scene, flightConfig)
     flight.create()
+
+    // Set initial animation speed and tilt mode
+    flight.setAnimationSpeed(params.animationSpeed)
+    flight.setTiltMode(params.tiltMode)
+
     return flight
 }
 
@@ -293,6 +302,27 @@ function switchCurveType(value) {
     }
 }
 
+// Performance profiling (toggle with 'p' key)
+let enableProfiling = false
+const perfStats = {
+    flightUpdates: 0,
+    mergedUpdates: 0,
+    controlsUpdate: 0,
+    render: 0,
+    total: 0
+}
+
+// Toggle profiling with 'p' key
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'p' || e.key === 'P') {
+        enableProfiling = !enableProfiling
+        console.log(`Performance profiling ${enableProfiling ? 'ENABLED' : 'DISABLED'}`)
+        if (enableProfiling) {
+            console.log('Press P again to see stats and disable profiling')
+        }
+    }
+})
+
 // Animation loop
 function animate() {
     requestAnimationFrame(animate)
@@ -300,26 +330,61 @@ function animate() {
     stats.begin() // Begin measuring
 
     const delta = clock.getDelta()
+    let t0, t1
 
     // Update all flights
+    if (enableProfiling) t0 = performance.now()
+    // Note: setAnimationSpeed and setTiltMode are now called only when params change (see GUI onChange handlers)
+    // This removes 60,000 redundant function calls per frame with 30,000 flights!
     flights.forEach(flight => {
-        flight.setAnimationSpeed(params.animationSpeed)
-        flight.setTiltMode(params.tiltMode)
         flight.update(delta)
     })
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.flightUpdates += (t1 - t0)
+    }
 
     // Apply any pending updates to merged renderers
+    if (enableProfiling) t0 = performance.now()
     if (mergedCurves) {
         mergedCurves.applyUpdates()
     }
     if (mergedPanes) {
         mergedPanes.applyUpdates()
     }
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.mergedUpdates += (t1 - t0)
+    }
 
     // Update controls
+    if (enableProfiling) t0 = performance.now()
     controls.update()
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.controlsUpdate += (t1 - t0)
+    }
 
+    // Render
+    if (enableProfiling) t0 = performance.now()
     renderer.render(scene, camera)
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.render += (t1 - t0)
+        perfStats.total++
+
+        // Log stats every 60 frames
+        if (perfStats.total % 60 === 0) {
+            const frames = perfStats.total
+            console.log('=== Performance Stats (avg per frame) ===')
+            console.log(`Flight Updates: ${(perfStats.flightUpdates / frames).toFixed(2)}ms (${flights.length} flights)`)
+            console.log(`Merged Updates: ${(perfStats.mergedUpdates / frames).toFixed(2)}ms`)
+            console.log(`Controls Update: ${(perfStats.controlsUpdate / frames).toFixed(2)}ms`)
+            console.log(`Render: ${(perfStats.render / frames).toFixed(2)}ms`)
+            console.log(`Total per frame: ${((perfStats.flightUpdates + perfStats.mergedUpdates + perfStats.controlsUpdate + perfStats.render) / frames).toFixed(2)}ms`)
+            console.log(`Target: 16.67ms (60 FPS)`)
+        }
+    }
 
     stats.end() // End measuring
 }

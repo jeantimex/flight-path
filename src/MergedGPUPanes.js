@@ -24,6 +24,7 @@ export class MergedGPUPanes {
         this.activePanes = 0
         this.needsColorUpdate = false
         this.needsScaleUpdate = false
+        this.needsMatrixUpdate = false
 
         // Store pane data for each instance
         this.paneData = []
@@ -179,7 +180,9 @@ export class MergedGPUPanes {
 
         // Update instance matrix
         this.instancedMesh.setMatrixAt(index, matrix)
-        this.instancedMesh.instanceMatrix.needsUpdate = true
+
+        // Mark for batched update
+        this.needsMatrixUpdate = true
     }
 
     /**
@@ -349,6 +352,10 @@ export class MergedGPUPanes {
                 this.geometry.attributes.instanceScale.needsUpdate = true
             }
             this.needsScaleUpdate = false
+        }
+        if (this.needsMatrixUpdate) {
+            this.instancedMesh.instanceMatrix.needsUpdate = true
+            this.needsMatrixUpdate = false
         }
     }
 }
