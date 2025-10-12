@@ -15,6 +15,8 @@ export class MergedGPUPanes {
         this.instancedMesh = null
         this.geometry = null
         this.material = null
+        this.uniforms = null
+        this.texture = null
 
         // Per-instance data stored in Float32Arrays
         this.instanceColors = new Float32Array(this.maxPanes * 3) // RGB per instance
@@ -49,19 +51,25 @@ export class MergedGPUPanes {
             new THREE.InstancedBufferAttribute(this.instanceScales, 1)
         )
 
+        this.uniforms = {
+            baseSize: { value: this.baseSize },
+            paneMap: { value: null },
+            useTexture: { value: 0.0 }
+        }
+
         // Create shader material with per-instance coloring and scaling
         this.material = new THREE.ShaderMaterial({
-            uniforms: {
-                baseSize: { value: this.baseSize }
-            },
+            uniforms: this.uniforms,
             vertexShader: `
                 attribute vec3 instanceColor;
                 attribute float instanceScale;
 
                 varying vec3 vColor;
+                varying vec2 vUv;
 
                 void main() {
                     vColor = instanceColor;
+                    vUv = uv;
 
                     // Apply per-instance scale to the vertex position
                     vec3 scaledPosition = position * instanceScale;
@@ -73,12 +81,24 @@ export class MergedGPUPanes {
             `,
             fragmentShader: `
                 varying vec3 vColor;
+                varying vec2 vUv;
+                uniform sampler2D paneMap;
+                uniform float useTexture;
 
                 void main() {
-                    gl_FragColor = vec4(vColor, 1.0);
+                    vec4 textureColor = vec4(1.0);
+                    if (useTexture > 0.5) {
+                        textureColor = texture2D(paneMap, vUv);
+                        if (textureColor.a < 0.05) discard;
+                    }
+
+                    vec3 finalColor = useTexture > 0.5 ? textureColor.rgb : vColor;
+                    float finalAlpha = useTexture > 0.5 ? textureColor.a : 1.0;
+                    gl_FragColor = vec4(finalColor, finalAlpha);
                 }
             `,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            transparent: true
         })
 
         // Create instanced mesh
@@ -357,5 +377,23 @@ export class MergedGPUPanes {
             this.instancedMesh.instanceMatrix.needsUpdate = true
             this.needsMatrixUpdate = false
         }
+    }
+
+    /**
+     * Enable or disable textured rendering for panes
+     * @param {THREE.Texture|null} texture - Texture to apply, or null to disable
+     */
+    setTexture(texture) {
+        this.texture = texture
+        if (!this.material || !this.uniforms) return
+
+        this.uniforms.paneMap.value = texture
+        this.uniforms.useTexture.value = texture ? 1.0 : 0.0
+
+        if (texture) {
+            texture.needsUpdate = true
+        }
+
+        this.material.needsUpdate = true
     }
 }

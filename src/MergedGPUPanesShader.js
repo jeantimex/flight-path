@@ -72,7 +72,9 @@ export class MergedGPUPanesShader {
         this.material = new THREE.ShaderMaterial({
             uniforms: {
                 time: { value: 0.0 },
-                baseSize: { value: this.baseSize }
+                baseSize: { value: this.baseSize },
+                paneMap: { value: null },
+                useTexture: { value: 0.0 }
             },
             vertexShader: `
                 // Per-instance curve control points (packed)
@@ -91,6 +93,7 @@ export class MergedGPUPanesShader {
 
                 // Varyings
                 varying vec3 vColor;
+                varying vec2 vUv;
 
                 // Unpack control points from packed attributes (MUST BE FIRST)
                 vec3 getControlPoint(int index) {
@@ -220,6 +223,7 @@ export class MergedGPUPanesShader {
 
                 void main() {
                     vColor = instanceColor;
+                    vUv = uv;
 
                     // Extract animation parameters
                     float phase = animationParams.x;
@@ -259,12 +263,24 @@ export class MergedGPUPanesShader {
             `,
             fragmentShader: `
                 varying vec3 vColor;
+                varying vec2 vUv;
+                uniform sampler2D paneMap;
+                uniform float useTexture;
 
                 void main() {
-                    gl_FragColor = vec4(vColor, 1.0);
+                    vec4 textureColor = vec4(1.0);
+                    if (useTexture > 0.5) {
+                        textureColor = texture2D(paneMap, vUv);
+                        if (textureColor.a < 0.05) discard;
+                    }
+
+                    vec3 finalColor = useTexture > 0.5 ? textureColor.rgb : vColor;
+                    float finalAlpha = useTexture > 0.5 ? textureColor.a : 1.0;
+                    gl_FragColor = vec4(finalColor, finalAlpha);
                 }
             `,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            transparent: true
         })
 
         // Create instanced mesh
@@ -440,6 +456,22 @@ export class MergedGPUPanesShader {
      */
     getCount() {
         return this.maxPanes
+    }
+
+    /**
+     * Enable or disable textured rendering for panes
+     * @param {THREE.Texture|null} texture - Texture to apply or null to disable
+     */
+    setTexture(texture) {
+        if (!this.material || !this.material.uniforms) return
+
+        this.material.uniforms.paneMap.value = texture
+        this.material.uniforms.useTexture.value = texture ? 1.0 : 0.0
+
+        if (texture) {
+            texture.needsUpdate = true
+        }
+        this.material.needsUpdate = true
     }
 
     /**

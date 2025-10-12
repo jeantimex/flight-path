@@ -30,6 +30,10 @@ const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
 
+const textureLoader = new THREE.TextureLoader()
+let svgTexture = null
+let svgTexturePromise = null
+
 // GUI controls
 const params = {
     numFlights: 1,
@@ -40,6 +44,7 @@ const params = {
     animationSpeed: 0.1,
     tiltMode: 'Perpendicular',
     useGPUShader: true, // Toggle between CPU and GPU shader-based panes
+    paneStyle: 'Pane',
     dashSize: 40,
     gapSize: 40
 }
@@ -75,6 +80,7 @@ gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange((v
 gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
     flights.forEach(flight => flight.setTiltMode(value))
 })
+gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 
@@ -91,6 +97,51 @@ function normalizeControlPoints(points) {
         curve.getPoint(0.666),
         curve.getPoint(1.0)
     ]
+}
+
+function loadSvgTexture() {
+    if (svgTexture) {
+        return Promise.resolve(svgTexture)
+    }
+
+    if (svgTexturePromise) {
+        return svgTexturePromise
+    }
+
+    svgTexturePromise = new Promise((resolve, reject) => {
+        textureLoader.load('/src/plane8.svg', (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace
+            texture.generateMipmaps = true
+            texture.needsUpdate = true
+            svgTexture = texture
+            resolve(svgTexture)
+        }, undefined, (error) => {
+            console.error('Failed to load SVG texture:', error)
+            svgTexturePromise = null
+            reject(error)
+        })
+    })
+
+    return svgTexturePromise
+}
+
+function applyPaneTexture() {
+    if (!mergedPanes || typeof mergedPanes.setTexture !== 'function') return
+
+    if (params.paneStyle === 'SVG') {
+        if (svgTexture) {
+            mergedPanes.setTexture(svgTexture)
+        } else {
+            mergedPanes.setTexture(null)
+            loadSvgTexture().then((texture) => {
+                if (params.paneStyle === 'SVG' && mergedPanes) {
+                    mergedPanes.setTexture(texture)
+                }
+            }).catch(() => {})
+        }
+    } else {
+        mergedPanes.setTexture(null)
+    }
 }
 
 const curveActions = {
@@ -160,6 +211,7 @@ function initializeFlights() {
     }
 
     updateDashPattern()
+    applyPaneTexture()
 
     for (let i = 0; i < params.numFlights; i++) {
         const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
@@ -169,7 +221,7 @@ function initializeFlights() {
             segmentCount: params.segmentCount,
             curveColor: params.curveColor,
             paneSize: params.planeSize,
-            paneColor: params.planeColor
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
         }
         const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
@@ -196,7 +248,7 @@ function updateFlightCount(count) {
                     segmentCount: params.segmentCount,
                     curveColor: params.curveColor,
                     paneSize: params.planeSize,
-                    paneColor: params.planeColor
+                    paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -251,6 +303,9 @@ function updatePlaneSize(size) {
 
 // Function to update plane color
 function updatePlaneColor(color) {
+    if (params.paneStyle === 'SVG') {
+        return
+    }
     flights.forEach(flight => flight.setPaneColor(color))
     // Updates will be applied in animation loop via applyUpdates()
 }
@@ -260,6 +315,13 @@ function updateDashPattern() {
         mergedCurves.setDashPattern(params.dashSize, params.gapSize)
         mergedCurves.applyUpdates()
     }
+}
+
+function updatePaneStyle() {
+    if (params.paneStyle === 'SVG') {
+        loadSvgTexture().catch(() => {})
+    }
+    initializeFlights()
 }
 
 function randomizeAllFlightCurves() {
@@ -272,10 +334,13 @@ function randomizeAllFlightCurves() {
             ...existingConfig,
             ...randomConfig,
             controlPoints: normalizedPoints,
-            segmentCount: params.segmentCount
+            segmentCount: params.segmentCount,
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
         }
 
         flight.setControlPoints(normalizedPoints)
+        const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+        flight.setPaneColor(paneColor)
     })
 
     if (mergedCurves) {
