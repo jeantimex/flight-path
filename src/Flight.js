@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 
 /**
- * GPUFlight combines a curve (from Curves) and panes (from PanesShader) into a single flight unit.
+ * Flight combines a curve (from Curves) and panes (from PanesShader) into a single flight unit.
  * This version uses shared merged renderers for maximum performance.
  */
-export class GPUFlight {
+export class Flight {
     constructor(scene, options = {}) {
         this.scene = scene
         this.animationTime = 0

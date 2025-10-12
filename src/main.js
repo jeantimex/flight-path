@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
 import Stats from 'stats.js'
-import { GPUFlight } from './GPUFlight.js'
+import { Flight } from './Flight.js'
 import { Curves } from './Curves.js'
 import { PanesShader } from './PanesShader.js'
 import { FlightUtils } from './FlightUtils.js'
@@ -160,7 +160,7 @@ function createFlightFromConfig(config, flightIndex) {
         mergedPanes: mergedPanes,
         paneIndex: flightIndex
     }
-    const flight = new GPUFlight(scene, flightConfig)
+    const flight = new Flight(scene, flightConfig)
     flight.create()
 
     // Set initial animation speed and tilt mode
