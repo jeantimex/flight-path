@@ -34,8 +34,11 @@ export class GPUFlight {
         this.animationSpeed = options.animationSpeed || 0.1
         this.tiltMode = options.tiltMode || 'Perpendicular'
 
-        // Cached curve for performance
+        // Cached curve for performance (used for CPU-based panes)
         this._cachedCurve = null
+
+        // Detect if panes are shader-based or CPU-based
+        this._isShaderBasedPanes = false
     }
 
     /**
@@ -49,15 +52,28 @@ export class GPUFlight {
                 this.controlPoints,
                 this.curveOptions.color
             )
-            // Create cached curve for pane animation
+            // Create cached curve for CPU-based pane animation
             this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
         }
 
         // Initialize pane in merged renderer
         if (this.mergedPanes && this.paneIndex >= 0) {
-            // Set initial color and size
-            this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
-            this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+            // Detect if panes are shader-based by checking for setCurveControlPoints method
+            this._isShaderBasedPanes = typeof this.mergedPanes.setCurveControlPoints === 'function'
+
+            if (this._isShaderBasedPanes) {
+                // GPU Shader-based panes: Upload control points once
+                const fourPoints = this.resampleTo4Points(this.controlPoints)
+                this.mergedPanes.setCurveControlPoints(this.paneIndex, fourPoints)
+                this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
+                this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+                this.mergedPanes.setAnimationSpeed(this.paneIndex, this.animationSpeed)
+                this.mergedPanes.setTiltMode(this.paneIndex, this.tiltMode)
+            } else {
+                // CPU-based panes: Just set initial color and size
+                this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
+                this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+            }
         }
 
         return this
@@ -66,8 +82,13 @@ export class GPUFlight {
     /**
      * Update animation for pane on the curve
      * @param {number} deltaTime - Time elapsed since last frame
+     * Note: For shader-based panes, this does nothing (GPU handles animation)
      */
     update(deltaTime) {
+        // Shader-based panes don't need per-flight updates (GPU handles everything)
+        if (this._isShaderBasedPanes) return
+
+        // CPU-based panes need per-flight position updates
         if (!this._cachedCurve || !this.mergedPanes || this.paneIndex < 0) return
 
         // Update animation time
@@ -150,6 +171,11 @@ export class GPUFlight {
      */
     setAnimationSpeed(speed) {
         this.animationSpeed = speed
+
+        // Update shader-based panes
+        if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setAnimationSpeed(this.paneIndex, speed)
+        }
     }
 
     /**
@@ -157,6 +183,11 @@ export class GPUFlight {
      */
     setTiltMode(mode) {
         this.tiltMode = mode
+
+        // Update shader-based panes
+        if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
+            this.mergedPanes.setTiltMode(this.paneIndex, mode)
+        }
     }
 
     /**
@@ -205,5 +236,27 @@ export class GPUFlight {
 
         // Clear cached curve
         this._cachedCurve = null
+    }
+
+    /**
+     * Resample control points to exactly 4 points for shader-based panes
+     * @param {Array<THREE.Vector3>} controlPoints - Original control points
+     * @returns {Array<THREE.Vector3>} Array of exactly 4 control points
+     */
+    resampleTo4Points(controlPoints) {
+        if (controlPoints.length === 4) {
+            return controlPoints
+        }
+
+        // Create a curve from the original points
+        const curve = new THREE.CatmullRomCurve3(controlPoints)
+
+        // Sample 4 evenly spaced points along the curve
+        return [
+            curve.getPoint(0.0),
+            curve.getPoint(0.333),
+            curve.getPoint(0.666),
+            curve.getPoint(1.0)
+        ]
     }
 }

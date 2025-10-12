@@ -6,6 +6,7 @@ import Stats from 'stats.js'
 import { GPUFlight } from './GPUFlight.js'
 import { MergedGPUCurves } from './MergedGPUCurves.js'
 import { MergedGPUPanes } from './MergedGPUPanes.js'
+import { MergedGPUPanesShader } from './MergedGPUPanesShader.js'
 import { FlightUtils } from './FlightUtils.js'
 
 // Scene setup
@@ -39,7 +40,8 @@ const params = {
     planeSize: 100,
     planeColor: 0xff6666,
     animationSpeed: 0.1,
-    tiltMode: 'Perpendicular'
+    tiltMode: 'Perpendicular',
+    useGPUShader: true // Toggle between CPU and GPU shader-based panes
 }
 
 // Pre-generate flight configurations for stability
@@ -66,6 +68,10 @@ function regenerateFlightConfigs() {
 
 // Setup dat.GUI
 const gui = new dat.GUI()
+gui.add(params, 'useGPUShader').name('Use GPU Shader').onChange(() => {
+    console.log('GPU Shader mode changed. Reinitializing flights...')
+    initializeFlights()
+})
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
 gui.add(params, 'curveType', ['Original', 'Circle', 'Random']).name('Curve Type').onChange(switchCurveType)
 gui.add(params, 'lineWidth', 0.5, 10.0).name('Line Width').onChange(updateLineWidth)
@@ -145,11 +151,20 @@ function initializeFlights() {
         lineWidth: params.lineWidth
     })
 
-    // Create new merged panes renderer
-    mergedPanes = new MergedGPUPanes(scene, {
-        maxPanes: MAX_FLIGHTS,
-        baseSize: params.planeSize
-    })
+    // Create new merged panes renderer (GPU Shader or CPU-based)
+    if (params.useGPUShader) {
+        console.log('Using GPU Shader-based panes (all calculations on GPU)')
+        mergedPanes = new MergedGPUPanesShader(scene, {
+            maxPanes: MAX_FLIGHTS,
+            baseSize: params.planeSize
+        })
+    } else {
+        console.log('Using CPU-based panes (per-flight matrix calculations)')
+        mergedPanes = new MergedGPUPanes(scene, {
+            maxPanes: MAX_FLIGHTS,
+            baseSize: params.planeSize
+        })
+    }
 
     if (params.curveType === 'Random' || params.numFlights > 1) {
         // Use pre-generated random configs
@@ -210,7 +225,8 @@ function updateFlightCount(count) {
             if (mergedCurves) {
                 mergedCurves.applyUpdates()
             }
-            if (mergedPanes) {
+            if (mergedPanes && !params.useGPUShader) {
+                // Only apply updates for CPU-based panes
                 mergedPanes.applyUpdates()
             }
         }
@@ -334,11 +350,21 @@ function animate() {
 
     // Update all flights
     if (enableProfiling) t0 = performance.now()
-    // Note: setAnimationSpeed and setTiltMode are now called only when params change (see GUI onChange handlers)
-    // This removes 60,000 redundant function calls per frame with 30,000 flights!
-    flights.forEach(flight => {
-        flight.update(delta)
-    })
+
+    if (params.useGPUShader) {
+        // GPU Shader mode: Only update the time uniform (no per-flight work!)
+        if (mergedPanes) {
+            mergedPanes.update(delta)
+        }
+    } else {
+        // CPU mode: Update each flight individually
+        // Note: setAnimationSpeed and setTiltMode are now called only when params change (see GUI onChange handlers)
+        // This removes 60,000 redundant function calls per frame with 30,000 flights!
+        flights.forEach(flight => {
+            flight.update(delta)
+        })
+    }
+
     if (enableProfiling) {
         t1 = performance.now()
         perfStats.flightUpdates += (t1 - t0)
@@ -349,7 +375,8 @@ function animate() {
     if (mergedCurves) {
         mergedCurves.applyUpdates()
     }
-    if (mergedPanes) {
+    if (mergedPanes && !params.useGPUShader) {
+        // Only apply updates for CPU-based panes
         mergedPanes.applyUpdates()
     }
     if (enableProfiling) {
