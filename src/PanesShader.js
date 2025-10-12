@@ -93,10 +93,10 @@ export class PanesShader {
 
         // Initialize all instances as hidden
         for (let i = 0; i < this.maxPanes; i++) {
-            // Initialize colors (red)
+            // Initialize colors to white so textures tint correctly
             this.instanceColors[i * 3] = 1.0
-            this.instanceColors[i * 3 + 1] = 0.4
-            this.instanceColors[i * 3 + 2] = 0.4
+            this.instanceColors[i * 3 + 1] = 1.0
+            this.instanceColors[i * 3 + 2] = 1.0
 
             // Initialize scale to 0 (hidden)
             this.instanceScales[i] = 0.0

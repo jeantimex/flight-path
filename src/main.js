@@ -126,12 +126,6 @@ function applyCurveColorMode() {
 }
 
 function resolvePaneColor(config = {}) {
-    if (params.paneStyle === 'SVG') {
-        config._randomPaneColor = false
-        config.paneColor = 0xffffff
-        return config.paneColor
-    }
-
     if (params.randomPaneColor) {
         if (!config._randomPaneColor) {
             config.paneColor = FlightUtils.generateRandomColor()
@@ -352,10 +346,6 @@ function updatePlaneSize(size) {
 // Function to update plane color
 function updatePlaneColor(color) {
     params.planeColor = color
-
-    if (params.paneStyle === 'SVG') {
-        return
-    }
 
     if (params.randomPaneColor) {
         return
