@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 /**
- * GPUFlight combines a curve (from MergedGPUCurves) and panes (from MergedGPUPanes) into a single flight unit.
+ * GPUFlight combines a curve (from Curves) and panes (from PanesShader) into a single flight unit.
  * This version uses shared merged renderers for maximum performance.
  */
 export class GPUFlight {
@@ -140,7 +140,7 @@ export class GPUFlight {
      */
     setCurveSegmentCount(count) {
         this.curveOptions.segmentCount = count
-        // Segment count is a global setting in MergedGPUCurves
+        // Segment count is a global setting in Curves
         // To change it, you'd need to recreate the entire merged curves renderer
     }
 

@@ -2,9 +2,11 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
-import { GLBPlane } from './GLBPlane.js'
-import { SVGPlane } from './SVGPlane.js'
-import { Curve } from './Curve.js'
+import Stats from 'stats.js'
+import { GPUFlight } from './GPUFlight.js'
+import { Curves } from './Curves.js'
+import { PanesShader } from './PanesShader.js'
+import { FlightUtils } from './FlightUtils.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -14,57 +16,327 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
 
+// Setup Stats.js for performance monitoring
+const stats = new Stats()
+stats.showPanel(0) // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild(stats.dom)
+
 // Global variables
-let flightCurve
+let flights = []
+let mergedCurves = null
+let mergedPanes = null
 const clock = new THREE.Clock()
-let animationTime = 0
-let currentPlane = null
+const MAX_FLIGHTS = 30000
+let preGeneratedConfigs = []
+
+const textureLoader = new THREE.TextureLoader()
+let svgTexture = null
+let svgTexturePromise = null
 
 // GUI controls
 const params = {
-    modelType: 'GLB',
-    planeSize: 1.0,
-    curveType: 'Original'
+    numFlights: 1,
+    segmentCount: 100,
+    curveColor: 0x4488ff,
+    planeSize: 100,
+    planeColor: 0xff6666,
+    animationSpeed: 0.1,
+    tiltMode: 'Perpendicular',
+    paneStyle: 'Pane',
+    dashSize: 40,
+    gapSize: 40
+}
+
+// Pre-generate flight configurations for stability
+function preGenerateFlightConfigs() {
+    preGeneratedConfigs = []
+
+    for (let i = 0; i < MAX_FLIGHTS; i++) {
+        const config = FlightUtils.generateRandomFlightConfig({
+            segmentCount: params.segmentCount,
+            tiltMode: params.tiltMode,
+            numControlPoints: 2
+        })
+        config.controlPoints = normalizeControlPoints(config.controlPoints)
+        preGeneratedConfigs.push(config)
+    }
 }
 
 // Setup dat.GUI
 const gui = new dat.GUI()
-gui.add(params, 'modelType', ['GLB', 'SVG']).name('Model Type').onChange(switchModelType)
-gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSize)
-gui.add(params, 'curveType', ['Original']).name('Curve Type').onChange(switchCurveType)
+gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
+gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
+gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
+gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
+gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
+gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange((value) => {
+    flights.forEach(flight => flight.setAnimationSpeed(value))
+})
+gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
+    flights.forEach(flight => flight.setTiltMode(value))
+})
+gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
+gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
+gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 
-// Function to get curve control points based on type
-function getCurveControlPoints(type) {
-    // Original curve (4 control points)
+function normalizeControlPoints(points) {
+    const sourcePoints = points && points.length ? cloneControlPoints(points) : []
+    if (sourcePoints.length === 4) {
+        return sourcePoints
+    }
+
+    const curve = new THREE.CatmullRomCurve3(sourcePoints)
     return [
-        new THREE.Vector3(-1000, -5000, -5000),
-        new THREE.Vector3(1000, 0, 0),
-        new THREE.Vector3(800, 5000, 5000),
-        new THREE.Vector3(-500, 0, 10000)
+        curve.getPoint(0.0),
+        curve.getPoint(0.333),
+        curve.getPoint(0.666),
+        curve.getPoint(1.0)
     ]
 }
 
-// Initialize with GLB plane
-async function initializePlane() {
-    // Create the flight curve
-    const controlPoints = getCurveControlPoints(params.curveType)
-    flightCurve = new Curve(scene, { controlPoints })
-    flightCurve.create()
+function loadSvgTexture() {
+    if (svgTexture) {
+        return Promise.resolve(svgTexture)
+    }
 
-    // Create the plane
-    currentPlane = new GLBPlane(scene)
-    await currentPlane.load()
+    if (svgTexturePromise) {
+        return svgTexturePromise
+    }
+
+    svgTexturePromise = new Promise((resolve, reject) => {
+        textureLoader.load('/src/plane8.svg', (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace
+            texture.generateMipmaps = true
+            texture.needsUpdate = true
+            svgTexture = texture
+            resolve(svgTexture)
+        }, undefined, (error) => {
+            console.error('Failed to load SVG texture:', error)
+            svgTexturePromise = null
+            reject(error)
+        })
+    })
+
+    return svgTexturePromise
+}
+
+function applyPaneTexture() {
+    if (!mergedPanes || typeof mergedPanes.setTexture !== 'function') return
+
+    if (params.paneStyle === 'SVG') {
+        if (svgTexture) {
+            mergedPanes.setTexture(svgTexture)
+        } else {
+            mergedPanes.setTexture(null)
+            loadSvgTexture().then((texture) => {
+                if (params.paneStyle === 'SVG' && mergedPanes) {
+                    mergedPanes.setTexture(texture)
+                }
+            }).catch(() => {})
+        }
+    } else {
+        mergedPanes.setTexture(null)
+    }
+}
+
+const curveActions = {
+    randomizeCurve() {
+        randomizeAllFlightCurves()
+    }
+}
+gui.add(curveActions, 'randomizeCurve').name('Randomize All Curves')
+
+function cloneControlPoints(points) {
+    return points.map(point => point.clone())
+}
+
+// Create a single flight from config
+function createFlightFromConfig(config, flightIndex) {
+    // Add merged renderers and indices to config
+    const flightConfig = {
+        ...config,
+        mergedCurves: mergedCurves,
+        curveIndex: flightIndex,
+        mergedPanes: mergedPanes,
+        paneIndex: flightIndex
+    }
+    const flight = new GPUFlight(scene, flightConfig)
+    flight.create()
+
+    // Set initial animation speed and tilt mode
+    flight.setAnimationSpeed(params.animationSpeed)
+    flight.setTiltMode(params.tiltMode)
+
+    return flight
+}
+
+// Initialize all flights (full reset)
+function initializeFlights() {
+    // Clear existing flights
+    flights.forEach(flight => flight.remove())
+    flights = []
+
+    // Remove old merged renderers if they exist
+    if (mergedCurves) {
+        mergedCurves.remove()
+    }
+    if (mergedPanes) {
+        mergedPanes.remove()
+    }
+
+    // Create new merged curves renderer
+    mergedCurves = new Curves(scene, {
+        maxCurves: MAX_FLIGHTS,
+        segmentsPerCurve: params.segmentCount,
+        dashSize: params.dashSize,
+        gapSize: params.gapSize
+    })
+
+    // Create new merged panes renderer (GPU Shader)
+    mergedPanes = new PanesShader(scene, {
+        maxPanes: MAX_FLIGHTS,
+        baseSize: params.planeSize
+    })
+
+    updateDashPattern()
+    applyPaneTexture()
+
+    for (let i = 0; i < params.numFlights; i++) {
+        const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+        const flightConfig = {
+            ...baseConfig,
+            controlPoints: normalizeControlPoints(baseConfig.controlPoints),
+            segmentCount: params.segmentCount,
+            curveColor: params.curveColor,
+            paneSize: params.planeSize,
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+        }
+        const flight = createFlightFromConfig(flightConfig, i)
+        flights.push(flight)
+    }
+
+    // Update visible counts in merged renderers
+    mergedCurves.setVisibleCurveCount(flights.length)
+    mergedPanes.setActivePaneCount(flights.length)
+}
+
+// Update flight count (preserves existing flights)
+function updateFlightCount(count) {
+    const oldCount = flights.length
+    params.numFlights = count
+
+    if (count > oldCount) {
+        // Add new flights (starting from the beginning)
+        if (count > 1) {
+            for (let i = oldCount; i < count; i++) {
+                const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+                const flightConfig = {
+                    ...baseConfig,
+                    controlPoints: normalizeControlPoints(baseConfig.controlPoints),
+                    segmentCount: params.segmentCount,
+                    curveColor: params.curveColor,
+                    paneSize: params.planeSize,
+                    paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+                }
+                const flight = createFlightFromConfig(flightConfig, i)
+                flights.push(flight)
+            }
+            // Apply batched updates immediately after creating flights
+            if (mergedCurves) {
+                mergedCurves.applyUpdates()
+            }
+        }
+    } else if (count < oldCount) {
+        // Remove excess flights
+        const flightsToRemove = flights.splice(count)
+        flightsToRemove.forEach(flight => flight.remove())
+    }
+
+    // Update visible counts in merged renderers
+    if (mergedCurves) {
+        mergedCurves.setVisibleCurveCount(flights.length)
+    }
+    if (mergedPanes) {
+        mergedPanes.setActivePaneCount(flights.length)
+    }
+}
+
+// Function to update curve color
+function updateCurveColor(color) {
+    flights.forEach(flight => flight.setCurveColor(color))
+    // Apply batched updates to merged curves
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
+}
+
+// Function to update segment count
+function updateSegmentCount(count) {
+    // Note: Segment count is global in merged curves
+    // Need to recreate all curves
+    params.segmentCount = count
+    preGenerateFlightConfigs()
+    initializeFlights()
 }
 
 // Function to update plane size
 function updatePlaneSize(size) {
-    if (currentPlane && currentPlane.getMesh()) {
-        currentPlane.setScale(size)
+    flights.forEach(flight => flight.setPaneSize(size))
+    // Updates will be applied in animation loop via applyUpdates()
+}
+
+// Function to update plane color
+function updatePlaneColor(color) {
+    if (params.paneStyle === 'SVG') {
+        return
+    }
+    flights.forEach(flight => flight.setPaneColor(color))
+    // Updates will be applied in animation loop via applyUpdates()
+}
+
+function updateDashPattern() {
+    if (mergedCurves) {
+        mergedCurves.setDashPattern(params.dashSize, params.gapSize)
+        mergedCurves.applyUpdates()
     }
 }
 
-// Start with GLB plane
-initializePlane()
+function updatePaneStyle() {
+    if (params.paneStyle === 'SVG') {
+        loadSvgTexture().catch(() => {})
+    }
+    initializeFlights()
+}
+
+function randomizeAllFlightCurves() {
+    flights.forEach((flight, index) => {
+        const randomConfig = FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
+        const normalizedPoints = normalizeControlPoints(randomConfig.controlPoints)
+
+        const existingConfig = preGeneratedConfigs[index] || {}
+        preGeneratedConfigs[index] = {
+            ...existingConfig,
+            ...randomConfig,
+            controlPoints: normalizedPoints,
+            segmentCount: params.segmentCount,
+            paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+        }
+
+        flight.setControlPoints(normalizedPoints)
+        const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.paneColor
+        flight.setPaneColor(paneColor)
+    })
+
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
+}
+
+// Pre-generate all flight configurations on startup
+preGenerateFlightConfigs()
+
+// Initialize the flights
+initializeFlights()
 
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
@@ -86,84 +358,78 @@ controls.minDistance = 100
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
 
-// Function to update plane position and orientation based on curve
-function updatePlaneOnCurve(t) {
-    if (!currentPlane || !flightCurve || !flightCurve.exists()) return
-
-    // Delegate to the plane's specific implementation
-    currentPlane.updatePositionAndOrientation(flightCurve, params.planeSize, t)
+// Performance profiling (toggle with 'p' key)
+let enableProfiling = false
+const perfStats = {
+    flightUpdates: 0,
+    mergedUpdates: 0,
+    controlsUpdate: 0,
+    render: 0,
+    total: 0
 }
 
-// Function to switch between curve types
-async function switchCurveType(value) {
-    // Store current animation time to continue from same position
-    const currentTime = animationTime
-
-    // Remove current curve
-    if (flightCurve) {
-        flightCurve.remove()
-        flightCurve = null
+// Toggle profiling with 'p' key
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'p' || e.key === 'P') {
+        enableProfiling = !enableProfiling
     }
-
-    // Create new curve
-    const controlPoints = getCurveControlPoints(value)
-    flightCurve = new Curve(scene, { controlPoints })
-    flightCurve.create()
-
-    // Restore animation time and immediately update position
-    animationTime = currentTime
-    if (currentPlane && flightCurve && flightCurve.exists()) {
-        const t = (animationTime % 1)
-        updatePlaneOnCurve(t)
-    }
-}
-
-// Function to switch between model types
-async function switchModelType(value) {
-    // Store current animation time to continue from same position
-    const currentTime = animationTime
-
-    // Remove current plane
-    if (currentPlane) {
-        currentPlane.remove()
-        currentPlane = null
-    }
-
-    if (value === 'GLB') {
-        currentPlane = new GLBPlane(scene)
-    } else if (value === 'SVG') {
-        currentPlane = new SVGPlane(scene)
-    }
-
-    if (currentPlane) {
-        await currentPlane.load()
-    }
-
-    // Restore animation time and immediately update position
-    animationTime = currentTime
-    if (currentPlane && flightCurve && flightCurve.exists()) {
-        const t = (animationTime % 1)
-        updatePlaneOnCurve(t)
-    }
-}
+})
 
 // Animation loop
 function animate() {
     requestAnimationFrame(animate)
 
+    stats.begin() // Begin measuring
+
     const delta = clock.getDelta()
+    let t0, t1
 
-    // Update animation time
-    animationTime += delta * 0.1 // Adjust speed as needed
-    const t = (animationTime % 1) // Loop from 0 to 1
+    // Update all flights
+    if (enableProfiling) t0 = performance.now()
 
-    // Update plane position and orientation
-    updatePlaneOnCurve(t)
+    // GPU Shader mode: Only update the time uniform (no per-flight work!)
+    if (mergedPanes) {
+        mergedPanes.update(delta)
+    }
+
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.flightUpdates += (t1 - t0)
+    }
+
+    // Apply any pending updates to merged renderers
+    if (enableProfiling) t0 = performance.now()
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.mergedUpdates += (t1 - t0)
+    }
 
     // Update controls
+    if (enableProfiling) t0 = performance.now()
     controls.update()
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.controlsUpdate += (t1 - t0)
+    }
 
+    // Render
+    if (enableProfiling) t0 = performance.now()
     renderer.render(scene, camera)
+    if (enableProfiling) {
+        t1 = performance.now()
+        perfStats.render += (t1 - t0)
+        perfStats.total++
+
+        // Log stats every 60 frames
+        if (perfStats.total % 60 === 0) {
+            // Logging removed intentionally to keep console clean.
+        }
+    }
+
+    stats.end() // End measuring
 }
 
 // Handle window resize
