@@ -2,6 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import * as dat from 'dat.gui'
+import Stats from 'stats.js'
 import { GPUFlight } from './GPUFlight.js'
 import { MergedGPUCurves } from './MergedGPUCurves.js'
 import { MergedGPUPanes } from './MergedGPUPanes.js'
@@ -14,6 +15,11 @@ const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setClearColor(0xEFEFEF)
 document.querySelector('#app').appendChild(renderer.domElement)
+
+// Setup Stats.js for performance monitoring
+const stats = new Stats()
+stats.showPanel(0) // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild(stats.dom)
 
 // Global variables
 let flights = []
@@ -291,6 +297,8 @@ function switchCurveType(value) {
 function animate() {
     requestAnimationFrame(animate)
 
+    stats.begin() // Begin measuring
+
     const delta = clock.getDelta()
 
     // Update all flights
@@ -312,6 +320,8 @@ function animate() {
     controls.update()
 
     renderer.render(scene, camera)
+
+    stats.end() // End measuring
 }
 
 // Handle window resize
