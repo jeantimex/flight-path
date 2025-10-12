@@ -63,6 +63,7 @@ function preGenerateFlightConfigs() {
             tiltMode: params.tiltMode,
             numControlPoints: 2
         })
+        config.controlPoints = normalizeControlPoints(config.controlPoints)
         preGeneratedConfigs.push(config)
     }
 
@@ -88,10 +89,25 @@ gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onCh
     flights.forEach(flight => flight.setTiltMode(value))
 })
 
+function normalizeControlPoints(points) {
+    const sourcePoints = points && points.length ? cloneControlPoints(points) : cloneControlPoints(DEFAULT_CONTROL_POINTS)
+    if (sourcePoints.length === 4) {
+        return sourcePoints
+    }
+
+    const curve = new THREE.CatmullRomCurve3(sourcePoints)
+    return [
+        curve.getPoint(0.0),
+        curve.getPoint(0.333),
+        curve.getPoint(0.666),
+        curve.getPoint(1.0)
+    ]
+}
+
 const curveActions = {
     randomizeCurve() {
         const randomPoints = FlightUtils.generateRandomCurve({ numControlPoints: 2 })
-        customControlPoints = randomPoints.map(point => point.clone())
+        customControlPoints = normalizeControlPoints(randomPoints)
         initializeFlights()
     }
 }
@@ -102,7 +118,7 @@ function cloneControlPoints(points) {
 }
 
 function getPrimaryControlPoints() {
-    return cloneControlPoints(customControlPoints || DEFAULT_CONTROL_POINTS)
+    return normalizeControlPoints(customControlPoints || DEFAULT_CONTROL_POINTS)
 }
 
 // Create a single flight from config
@@ -180,6 +196,10 @@ function initializeFlights() {
                     curveColor: params.curveColor
                 }
             }
+            flightConfig = {
+                ...flightConfig,
+                controlPoints: normalizeControlPoints(flightConfig.controlPoints)
+            }
             const flight = createFlightFromConfig(flightConfig, i)
             flights.push(flight)
         }
@@ -230,6 +250,10 @@ function updateFlightCount(count) {
                         lineWidth: params.lineWidth,
                         curveColor: params.curveColor
                     }
+                }
+                flightConfig = {
+                    ...flightConfig,
+                    controlPoints: normalizeControlPoints(flightConfig.controlPoints)
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
