@@ -44,7 +44,8 @@ const params = {
     tiltMode: 'Perpendicular',
     paneStyle: 'Pane',
     dashSize: 40,
-    gapSize: 40
+    gapSize: 40,
+    randomPaneColor: false
 }
 
 // Pre-generate flight configurations for stability
@@ -78,6 +79,9 @@ gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onCh
 gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
+gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
+    applyCurveColorMode()
+})
 
 function normalizeControlPoints(points) {
     const sourcePoints = points && points.length ? cloneControlPoints(points) : []
@@ -92,6 +96,28 @@ function normalizeControlPoints(points) {
         curve.getPoint(0.666),
         curve.getPoint(1.0)
     ]
+}
+
+function resolveCurveColor(config = {}) {
+    if (params.randomPaneColor) {
+        if (!config.curveColor) {
+            config.curveColor = FlightUtils.generateRandomColor()
+        }
+        return config.curveColor
+    }
+    return params.curveColor
+}
+
+function applyCurveColorMode() {
+    flights.forEach((flight, index) => {
+        const config = preGeneratedConfigs[index] || {}
+        const color = params.randomPaneColor ? resolveCurveColor(config) : params.curveColor
+        flight.setCurveColor(color)
+    })
+
+    if (mergedCurves) {
+        mergedCurves.applyUpdates()
+    }
 }
 
 function loadSvgTexture() {
@@ -207,7 +233,7 @@ function initializeFlights() {
             ...baseConfig,
             controlPoints: normalizeControlPoints(baseConfig.controlPoints),
             segmentCount: params.segmentCount,
-            curveColor: params.curveColor,
+            curveColor: resolveCurveColor(baseConfig),
             paneSize: params.planeSize,
             paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         }
@@ -234,7 +260,7 @@ function updateFlightCount(count) {
                     ...baseConfig,
                     controlPoints: normalizeControlPoints(baseConfig.controlPoints),
                     segmentCount: params.segmentCount,
-                    curveColor: params.curveColor,
+                    curveColor: resolveCurveColor(baseConfig),
                     paneSize: params.planeSize,
                     paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
                 }
@@ -263,6 +289,11 @@ function updateFlightCount(count) {
 
 // Function to update curve color
 function updateCurveColor(color) {
+    if (params.randomPaneColor) {
+        params.curveColor = color
+        return
+    }
+
     flights.forEach(flight => flight.setCurveColor(color))
     // Apply batched updates to merged curves
     if (mergedCurves) {
@@ -319,10 +350,13 @@ function randomizeAllFlightCurves() {
             ...randomConfig,
             controlPoints: normalizedPoints,
             segmentCount: params.segmentCount,
+            curveColor: randomConfig.curveColor,
             paneColor: params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         }
 
         flight.setControlPoints(normalizedPoints)
+        const curveColor = resolveCurveColor(preGeneratedConfigs[index])
+        flight.setCurveColor(curveColor)
         const paneColor = params.paneStyle === 'SVG' ? 0xffffff : params.planeColor
         flight.setPaneColor(paneColor)
     })
