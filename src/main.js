@@ -46,7 +46,8 @@ const params = {
     dashSize: 40,
     gapSize: 40,
     randomCurveColor: false,
-    randomPaneColor: false
+    randomPaneColor: false,
+    randomSpeed: false
 }
 
 // Pre-generate flight configurations for stability
@@ -61,6 +62,7 @@ function preGenerateFlightConfigs() {
         })
         config.controlPoints = normalizeControlPoints(config.controlPoints)
         config._randomPaneColor = false
+        config._randomSpeed = typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined
         preGeneratedConfigs.push(config)
     }
 }
@@ -72,8 +74,8 @@ gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(upda
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
-gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange((value) => {
-    flights.forEach(flight => flight.setAnimationSpeed(value))
+gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange(() => {
+    applyAnimationSpeedMode()
 })
 gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
     flights.forEach(flight => flight.setTiltMode(value))
@@ -86,6 +88,9 @@ gui.add(params, 'randomCurveColor').name('Random Curve Color').onChange(() => {
 })
 gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
     applyPaneColorMode()
+})
+gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
+    applyAnimationSpeedMode()
 })
 
 function normalizeControlPoints(points) {
@@ -144,6 +149,31 @@ function applyPaneColorMode() {
         const config = preGeneratedConfigs[index] || {}
         const color = resolvePaneColor(config)
         flight.setPaneColor(color)
+    })
+}
+
+function generateRandomSpeed() {
+    return THREE.MathUtils.randFloat(0.03, 0.25)
+}
+
+function resolveAnimationSpeed(config = {}) {
+    if (params.randomSpeed) {
+        if (typeof config._randomSpeed !== 'number') {
+            const base = typeof config.animationSpeed === 'number'
+                ? config.animationSpeed
+                : generateRandomSpeed()
+            config._randomSpeed = base
+        }
+        return config._randomSpeed
+    }
+    return params.animationSpeed
+}
+
+function applyAnimationSpeedMode() {
+    flights.forEach((flight, index) => {
+        const config = preGeneratedConfigs[index] || {}
+        const speed = resolveAnimationSpeed(config)
+        flight.setAnimationSpeed(speed)
     })
 }
 
@@ -217,7 +247,7 @@ function createFlightFromConfig(config, flightIndex) {
     flight.create()
 
     // Set initial animation speed and tilt mode
-    flight.setAnimationSpeed(params.animationSpeed)
+    flight.setAnimationSpeed(flightConfig.animationSpeed !== undefined ? flightConfig.animationSpeed : params.animationSpeed)
     flight.setTiltMode(params.tiltMode)
 
     return flight
@@ -262,7 +292,8 @@ function initializeFlights() {
             segmentCount: params.segmentCount,
             curveColor: resolveCurveColor(baseConfig),
             paneSize: params.planeSize,
-            paneColor: resolvePaneColor(baseConfig)
+            paneColor: resolvePaneColor(baseConfig),
+            animationSpeed: resolveAnimationSpeed(baseConfig)
         }
         const flight = createFlightFromConfig(flightConfig, i)
         flights.push(flight)
@@ -289,7 +320,8 @@ function updateFlightCount(count) {
                     segmentCount: params.segmentCount,
                     curveColor: resolveCurveColor(baseConfig),
                     paneSize: params.planeSize,
-                    paneColor: resolvePaneColor(baseConfig)
+                    paneColor: resolvePaneColor(baseConfig),
+                    animationSpeed: resolveAnimationSpeed(baseConfig)
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -382,6 +414,7 @@ function randomizeAllFlightCurves() {
             curveColor: randomConfig.curveColor,
         }
         updatedConfig._randomPaneColor = params.randomPaneColor
+        updatedConfig._randomSpeed = params.randomSpeed ? randomConfig.animationSpeed : undefined
         preGeneratedConfigs[index] = updatedConfig
 
         flight.setControlPoints(normalizedPoints)
@@ -389,6 +422,8 @@ function randomizeAllFlightCurves() {
         flight.setCurveColor(curveColor)
         const paneColor = resolvePaneColor(updatedConfig)
         flight.setPaneColor(paneColor)
+        const speed = resolveAnimationSpeed(updatedConfig)
+        flight.setAnimationSpeed(speed)
     })
 
     if (mergedCurves) {
