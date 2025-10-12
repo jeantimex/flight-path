@@ -30,10 +30,18 @@ const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
 
+const DEFAULT_CONTROL_POINTS = [
+    new THREE.Vector3(-1000, -5000, -5000),
+    new THREE.Vector3(1000, 0, 0),
+    new THREE.Vector3(800, 5000, 5000),
+    new THREE.Vector3(-500, 0, 10000)
+]
+
+let customControlPoints = null
+
 // GUI controls
 const params = {
     numFlights: 1,
-    curveType: 'Original',
     lineWidth: 2.0,
     segmentCount: 100,
     curveColor: 0x4488ff,
@@ -52,18 +60,13 @@ function preGenerateFlightConfigs() {
     for (let i = 0; i < MAX_FLIGHTS; i++) {
         const config = FlightUtils.generateRandomFlightConfig({
             segmentCount: params.segmentCount,
-            tiltMode: params.tiltMode
+            tiltMode: params.tiltMode,
+            numControlPoints: 2
         })
         preGeneratedConfigs.push(config)
     }
 
     console.log('Flight configurations ready!')
-}
-
-// Regenerate all pre-generated configs (for when curve type changes)
-function regenerateFlightConfigs() {
-    preGenerateFlightConfigs()
-    initializeFlights()
 }
 
 // Setup dat.GUI
@@ -73,7 +76,6 @@ gui.add(params, 'useGPUShader').name('Use GPU Shader').onChange(() => {
     initializeFlights()
 })
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
-gui.add(params, 'curveType', ['Original', 'Circle', 'Random']).name('Curve Type').onChange(switchCurveType)
 gui.add(params, 'lineWidth', 0.5, 10.0).name('Line Width').onChange(updateLineWidth)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.addColor(params, 'curveColor').name('Curve Color').onChange(updateCurveColor)
@@ -86,28 +88,21 @@ gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onCh
     flights.forEach(flight => flight.setTiltMode(value))
 })
 
-// Function to get curve control points based on type
-function getCurveControlPoints(type) {
-    if (type === 'Circle') {
-        const radius = 3000
-        return [
-            new THREE.Vector3(radius, 0, 0),
-            new THREE.Vector3(0, 0, radius),
-            new THREE.Vector3(-radius, 0, 0),
-            new THREE.Vector3(0, 0, -radius),
-            new THREE.Vector3(radius, 0, 0) // Close the circle
-        ]
-    } else if (type === 'Random') {
-        return FlightUtils.generateRandomCurve()
-    } else {
-        // Original curve
-        return [
-            new THREE.Vector3(-1000, -5000, -5000),
-            new THREE.Vector3(1000, 0, 0),
-            new THREE.Vector3(800, 5000, 5000),
-            new THREE.Vector3(-500, 0, 10000)
-        ]
+const curveActions = {
+    randomizeCurve() {
+        const randomPoints = FlightUtils.generateRandomCurve({ numControlPoints: 2 })
+        customControlPoints = randomPoints.map(point => point.clone())
+        initializeFlights()
     }
+}
+gui.add(curveActions, 'randomizeCurve').name('Randomize First Curve')
+
+function cloneControlPoints(points) {
+    return points.map(point => point.clone())
+}
+
+function getPrimaryControlPoints() {
+    return cloneControlPoints(customControlPoints || DEFAULT_CONTROL_POINTS)
 }
 
 // Create a single flight from config
@@ -166,22 +161,31 @@ function initializeFlights() {
         })
     }
 
-    if (params.curveType === 'Random' || params.numFlights > 1) {
+    if (params.numFlights > 1) {
         // Use pre-generated random configs
         for (let i = 0; i < params.numFlights; i++) {
             const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
             // Override paneSize and paneColor with current GUI values
-            const flightConfig = {
+            let flightConfig = {
                 ...config,
                 paneSize: params.planeSize,
                 paneColor: params.planeColor
+            }
+            if (i === 0 && customControlPoints) {
+                flightConfig = {
+                    ...flightConfig,
+                    controlPoints: getPrimaryControlPoints(),
+                    segmentCount: params.segmentCount,
+                    lineWidth: params.lineWidth,
+                    curveColor: params.curveColor
+                }
             }
             const flight = createFlightFromConfig(flightConfig, i)
             flights.push(flight)
         }
     } else {
         // Single flight with GUI parameters
-        const controlPoints = getCurveControlPoints(params.curveType)
+        const controlPoints = getPrimaryControlPoints()
         const config = {
             controlPoints,
             segmentCount: params.segmentCount,
@@ -209,14 +213,23 @@ function updateFlightCount(count) {
 
     if (count > oldCount) {
         // Add new flights (starting from the beginning)
-        if (params.curveType === 'Random' || count > 1) {
+        if (count > 1) {
             for (let i = oldCount; i < count; i++) {
                 const config = preGeneratedConfigs[i % preGeneratedConfigs.length]
                 // Override paneSize with current GUI value
-                const flightConfig = {
+                let flightConfig = {
                     ...config,
                     paneSize: params.planeSize,
                     paneColor: params.planeColor
+                }
+                if (i === 0 && customControlPoints) {
+                    flightConfig = {
+                        ...flightConfig,
+                        controlPoints: getPrimaryControlPoints(),
+                        segmentCount: params.segmentCount,
+                        lineWidth: params.lineWidth,
+                        curveColor: params.curveColor
+                    }
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
                 flights.push(flight)
@@ -266,6 +279,7 @@ function updateSegmentCount(count) {
     // Note: Segment count is global in merged curves
     // Need to recreate all curves
     params.segmentCount = count
+    preGenerateFlightConfigs()
     initializeFlights()
 }
 
@@ -306,17 +320,6 @@ controls.screenSpacePanning = false
 controls.minDistance = 100
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
-
-// Function to switch between curve types
-function switchCurveType(value) {
-    if (value === 'Random') {
-        // Regenerate random configs when switching to Random
-        regenerateFlightConfigs()
-    } else {
-        // Just reinitialize with new curve type
-        initializeFlights()
-    }
-}
 
 // Performance profiling (toggle with 'p' key)
 let enableProfiling = false

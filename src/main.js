@@ -31,28 +31,17 @@ const params = {
 const gui = new dat.GUI()
 gui.add(params, 'modelType', ['GLB', 'SVG']).name('Model Type').onChange(switchModelType)
 gui.add(params, 'planeSize', 0.5, 5.0).name('Plane Size').onChange(updatePlaneSize)
-gui.add(params, 'curveType', ['Original', 'Circle']).name('Curve Type').onChange(switchCurveType)
+gui.add(params, 'curveType', ['Original']).name('Curve Type').onChange(switchCurveType)
 
 // Function to get curve control points based on type
 function getCurveControlPoints(type) {
-    if (type === 'Circle') {
-        const radius = 3000
-        return [
-            new THREE.Vector3(radius, 0, 0),
-            new THREE.Vector3(0, 0, radius),
-            new THREE.Vector3(-radius, 0, 0),
-            new THREE.Vector3(0, 0, -radius),
-            new THREE.Vector3(radius, 0, 0) // Close the circle
-        ]
-    } else {
-        // Original curve
-        return [
-            new THREE.Vector3(-1000, -5000, -5000),
-            new THREE.Vector3(1000, 0, 0),
-            new THREE.Vector3(800, 5000, 5000),
-            new THREE.Vector3(-500, 0, 10000)
-        ]
-    }
+    // Original curve (4 control points)
+    return [
+        new THREE.Vector3(-1000, -5000, -5000),
+        new THREE.Vector3(1000, 0, 0),
+        new THREE.Vector3(800, 5000, 5000),
+        new THREE.Vector3(-500, 0, 10000)
+    ]
 }
 
 // Initialize with GLB plane

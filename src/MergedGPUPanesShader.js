@@ -130,27 +130,26 @@ export class MergedGPUPanesShader {
                     );
                 }
 
-                // Evaluate CatmullRom spline through all 4 points
-                // These 4 points are sampled from the original curve, so we need to
-                // interpolate through ALL of them smoothly
+                // Evaluate CatmullRom spline through all 4 control points
+                // Three.js CatmullRomCurve3 passes through ALL points, so we need 3 segments
                 vec3 evaluateCatmullRom(float t, out vec3 tangent) {
                     vec3 p0 = getControlPoint(0);
                     vec3 p1 = getControlPoint(1);
                     vec3 p2 = getControlPoint(2);
                     vec3 p3 = getControlPoint(3);
 
-                    // For 4 sampled points, we need to create a curve that goes through all of them
-                    // Use CatmullRom with proper segmentation: 3 segments for 4 points
-                    // Segment boundaries: t=0 (p0), t=0.333 (p1), t=0.666 (p2), t=1.0 (p3)
-
                     vec3 position;
+
+                    // Divide into 3 segments to pass through all 4 points
+                    // Segment 0: p0 to p1 (t: 0.0 to 0.333)
+                    // Segment 1: p1 to p2 (t: 0.333 to 0.666)
+                    // Segment 2: p2 to p3 (t: 0.666 to 1.0)
 
                     if (t < 0.333) {
                         // First segment: p0 to p1
                         float localT = t / 0.333;
-                        // Use p0 as start control, p1 as end, p2 for tangent
-                        // For first segment, mirror p0 before it for tangent
-                        vec3 p_before = p0 - (p1 - p0);
+                        // Need a point before p0 for proper tangent
+                        vec3 p_before = p0 + (p0 - p1);
                         position = evaluateCatmullRomSegment(p_before, p0, p1, p2, localT);
                         tangent = normalize(getCatmullRomSegmentTangent(p_before, p0, p1, p2, localT));
                     } else if (t < 0.666) {
@@ -161,7 +160,7 @@ export class MergedGPUPanesShader {
                     } else {
                         // Last segment: p2 to p3
                         float localT = (t - 0.666) / 0.334;
-                        // For last segment, mirror p3 after it for tangent
+                        // Need a point after p3 for proper tangent
                         vec3 p_after = p3 + (p3 - p2);
                         position = evaluateCatmullRomSegment(p1, p2, p3, p_after, localT);
                         tangent = normalize(getCatmullRomSegmentTangent(p1, p2, p3, p_after, localT));
