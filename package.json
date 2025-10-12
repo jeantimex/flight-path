@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "repository": {
     "type": "git",
@@ -19,8 +21,9 @@
   "bugs": {
     "url": "https://github.com/jeantimex/flight-path/issues"
   },
-  "homepage": "https://github.com/jeantimex/flight-path#readme",
+  "homepage": "https://jeantimex.github.io/flight-path/",
   "devDependencies": {
+    "gh-pages": "^6.3.0",
     "vite": "^6.3.6"
   },
   "dependencies": {

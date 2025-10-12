@@ -207,7 +207,7 @@ function loadSvgTexture() {
     }
 
     svgTexturePromise = new Promise((resolve, reject) => {
-        textureLoader.load('/src/plane8.svg', (texture) => {
+        textureLoader.load('/plane8.svg', (texture) => {
             texture.colorSpace = THREE.SRGBColorSpace
             texture.generateMipmaps = true
             texture.needsUpdate = true
