@@ -54,7 +54,6 @@ const params = {
 
 // Pre-generate flight configurations for stability
 function preGenerateFlightConfigs() {
-    console.log(`Pre-generating ${MAX_FLIGHTS} flight configurations...`)
     preGeneratedConfigs = []
 
     for (let i = 0; i < MAX_FLIGHTS; i++) {
@@ -66,14 +65,11 @@ function preGenerateFlightConfigs() {
         config.controlPoints = normalizeControlPoints(config.controlPoints)
         preGeneratedConfigs.push(config)
     }
-
-    console.log('Flight configurations ready!')
 }
 
 // Setup dat.GUI
 const gui = new dat.GUI()
 gui.add(params, 'useGPUShader').name('Use GPU Shader').onChange(() => {
-    console.log('GPU Shader mode changed. Reinitializing flights...')
     initializeFlights()
 })
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
@@ -164,13 +160,11 @@ function initializeFlights() {
 
     // Create new merged panes renderer (GPU Shader or CPU-based)
     if (params.useGPUShader) {
-        console.log('Using GPU Shader-based panes (all calculations on GPU)')
         mergedPanes = new MergedGPUPanesShader(scene, {
             maxPanes: MAX_FLIGHTS,
             baseSize: params.planeSize
         })
     } else {
-        console.log('Using CPU-based panes (per-flight matrix calculations)')
         mergedPanes = new MergedGPUPanes(scene, {
             maxPanes: MAX_FLIGHTS,
             baseSize: params.planeSize
@@ -295,7 +289,6 @@ function updateCurveColor(color) {
 function updateLineWidth(width) {
     // Note: Line width is global in merged curves
     // Would need to recreate merged curves to change it
-    console.log('Line width change requires recreating curves. Use segment count or colors for dynamic changes.')
 }
 
 // Function to update segment count
@@ -359,10 +352,6 @@ const perfStats = {
 window.addEventListener('keydown', (e) => {
     if (e.key === 'p' || e.key === 'P') {
         enableProfiling = !enableProfiling
-        console.log(`Performance profiling ${enableProfiling ? 'ENABLED' : 'DISABLED'}`)
-        if (enableProfiling) {
-            console.log('Press P again to see stats and disable profiling')
-        }
     }
 })
 
@@ -429,14 +418,7 @@ function animate() {
 
         // Log stats every 60 frames
         if (perfStats.total % 60 === 0) {
-            const frames = perfStats.total
-            console.log('=== Performance Stats (avg per frame) ===')
-            console.log(`Flight Updates: ${(perfStats.flightUpdates / frames).toFixed(2)}ms (${flights.length} flights)`)
-            console.log(`Merged Updates: ${(perfStats.mergedUpdates / frames).toFixed(2)}ms`)
-            console.log(`Controls Update: ${(perfStats.controlsUpdate / frames).toFixed(2)}ms`)
-            console.log(`Render: ${(perfStats.render / frames).toFixed(2)}ms`)
-            console.log(`Total per frame: ${((perfStats.flightUpdates + perfStats.mergedUpdates + perfStats.controlsUpdate + perfStats.render) / frames).toFixed(2)}ms`)
-            console.log(`Target: 16.67ms (60 FPS)`)
+            // Logging removed intentionally to keep console clean.
         }
     }
 
