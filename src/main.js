@@ -8,6 +8,8 @@ import { Curves } from './Curves.js'
 import { PanesShader } from './PanesShader.js'
 import { FlightUtils } from './FlightUtils.js'
 import { Stars } from './Stars.js'
+import { Earth } from './Earth.js'
+import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition } from './Utils.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -27,6 +29,8 @@ let flights = []
 let mergedCurves = null
 let mergedPanes = null
 let stars = null
+let earth = null
+let initialCameraPositioned = false
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
@@ -198,6 +202,39 @@ function applyReturnMode() {
     if (mergedPanes && typeof mergedPanes.setReturnMode === 'function') {
         mergedPanes.setReturnMode(params.returnFlight)
     }
+}
+
+function updateSunPosition() {
+    if (!directionalLight) return
+    const radius = earth ? earth.getRadius() : 3000
+    const sunVector = getSunVector3(radius, getCurrentUtcTimeHours())
+    directionalLight.position.copy(sunVector)
+    directionalLight.lookAt(0, 0, 0)
+}
+
+function setInitialCameraPosition() {
+    if (!earth || initialCameraPositioned) return
+
+    const radius = earth.getRadius()
+    const sunPos = getSunVector3(radius, getCurrentUtcTimeHours())
+    const sunDirection = sunPos.clone().normalize()
+
+    const angle = THREE.MathUtils.degToRad(70)
+    const rotatedDirection = new THREE.Vector3(
+        sunDirection.x * Math.cos(angle) + sunDirection.z * Math.sin(angle),
+        sunDirection.y,
+        -sunDirection.x * Math.sin(angle) + sunDirection.z * Math.cos(angle)
+    )
+
+    const targetDistance = radius * 2.1
+    const targetPosition = rotatedDirection.multiplyScalar(targetDistance)
+    const startPosition = targetPosition.clone().multiplyScalar(1.25)
+
+    camera.position.copy(startPosition)
+    camera.lookAt(0, 0, 0)
+    animateCameraToPosition(camera, startPosition, targetPosition, 3000, 500)
+
+    initialCameraPositioned = true
 }
 
 function loadSvgTexture() {
@@ -474,12 +511,22 @@ initializeFlights()
 stars = new Stars(5000, 10000, 20000)
 stars.addToScene(scene)
 
+// Add Earth with atmosphere
+earth = new Earth(3000, () => {
+    setTimeout(() => setInitialCameraPosition(), 500)
+})
+earth.addToScene(scene)
+
 // Add lighting
-const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
+const ambientLight = new THREE.AmbientLight(0x404040, 0.35)
 scene.add(ambientLight)
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0)
 directionalLight.position.set(1000, 1000, 1000)
+directionalLight.target.position.set(0, 0, 0)
+scene.add(directionalLight.target)
 scene.add(directionalLight)
+
+updateSunPosition()
 
 // Position camera
 camera.position.set(0, 2000, 8000)
@@ -490,7 +537,7 @@ const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
 controls.dampingFactor = 0.05
 controls.screenSpacePanning = false
-controls.minDistance = 100
+controls.minDistance = 3200
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
 
@@ -531,6 +578,8 @@ function animate() {
     if (stars) {
         stars.update(delta)
     }
+
+    updateSunPosition()
 
     if (enableProfiling) {
         t1 = performance.now()
