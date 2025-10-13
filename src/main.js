@@ -10,7 +10,8 @@ import { FlightUtils } from './FlightUtils.js'
 import { Stars } from './Stars.js'
 import { Earth } from './Earth.js'
 import { Controls } from './Controls.js'
-import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition, vector3ToLatLng, hoursToTimeString } from './Utils.js'
+import { flights as dataFlights } from './Data.js'
+import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition, vector3ToLatLng, hoursToTimeString, latLngToVector3 } from './Utils.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -38,6 +39,7 @@ let earth = null
 let initialCameraPositioned = false
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
+const EARTH_RADIUS = 3000
 let preGeneratedConfigs = []
 let loadingScreenCreated = false
 let minLoadingTimeoutId = null
@@ -69,6 +71,67 @@ const params = {
     returnFlight: false
 }
 
+function generateParabolicControlPoints(departure, arrival, radius = EARTH_RADIUS) {
+    if (!departure || !arrival) {
+        return []
+    }
+
+    const surfaceOffset = 5
+    const maxCruiseAltitude = 200
+    const minCruiseAltitude = 15
+
+    const origin = latLngToVector3(departure.lat, departure.lng, radius)
+    const destination = latLngToVector3(arrival.lat, arrival.lng, radius)
+
+    const startSurface = origin.clone().normalize().multiplyScalar(radius + surfaceOffset)
+    const endSurface = destination.clone().normalize().multiplyScalar(radius + surfaceOffset)
+
+    const distance = startSurface.distanceTo(endSurface)
+    const maxDistance = radius * Math.PI
+    const distanceRatio = Math.min(distance / (maxDistance * 0.3), 1)
+    const cruiseAltitude = minCruiseAltitude + (maxCruiseAltitude - minCruiseAltitude) * Math.pow(distanceRatio, 0.7)
+
+    const climbPoint1 = startSurface.clone().lerp(endSurface, 0.2).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
+    const climbPoint2 = startSurface.clone().lerp(endSurface, 0.35).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
+    const cruisePeak = startSurface.clone().lerp(endSurface, 0.5).normalize().multiplyScalar(radius + cruiseAltitude * 0.85)
+    const descentPoint1 = startSurface.clone().lerp(endSurface, 0.65).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
+    const descentPoint2 = startSurface.clone().lerp(endSurface, 0.8).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
+
+    return [
+        startSurface,
+        climbPoint1,
+        climbPoint2,
+        cruisePeak,
+        descentPoint1,
+        descentPoint2,
+        endSurface
+    ]
+}
+
+function createDataFlightConfig() {
+    if (!Array.isArray(dataFlights) || dataFlights.length === 0) {
+        return null
+    }
+
+    const { departure, arrival } = dataFlights[0] || {}
+    const controlPoints = generateParabolicControlPoints(departure, arrival, EARTH_RADIUS)
+    if (!controlPoints.length) {
+        return null
+    }
+
+    return {
+        controlPoints,
+        segmentCount: params.segmentCount,
+        curveColor: params.curveColor,
+        paneCount: 1,
+        paneSize: params.planeSize,
+        paneColor: params.planeColor,
+        animationSpeed: params.animationSpeed,
+        tiltMode: params.tiltMode,
+        returnFlight: params.returnFlight
+    }
+}
+
 // Pre-generate flight configurations for stability
 function preGenerateFlightConfigs() {
     preGeneratedConfigs = []
@@ -84,6 +147,19 @@ function preGenerateFlightConfigs() {
         config._randomSpeed = typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined
         config.returnFlight = params.returnFlight
         preGeneratedConfigs.push(config)
+    }
+
+    const dataFlightConfig = createDataFlightConfig()
+    if (dataFlightConfig && preGeneratedConfigs.length > 0) {
+        const normalizedPoints = normalizeControlPoints(dataFlightConfig.controlPoints)
+        preGeneratedConfigs[0] = {
+            ...preGeneratedConfigs[0],
+            ...dataFlightConfig,
+            controlPoints: normalizedPoints,
+            _randomPaneColor: false,
+            _randomSpeed: typeof dataFlightConfig.animationSpeed === 'number' ? dataFlightConfig.animationSpeed : undefined,
+            returnFlight: params.returnFlight
+        }
     }
 }
 
