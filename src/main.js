@@ -23,6 +23,10 @@ document.querySelector('#app').appendChild(renderer.domElement)
 const stats = new Stats()
 stats.showPanel(0) // 0: fps, 1: ms, 2: mb, 3+: custom
 document.body.appendChild(stats.dom)
+stats.dom.style.display = 'none'
+stats.dom.style.position = 'absolute'
+stats.dom.style.left = '0px'
+stats.dom.style.top = '0px'
 
 // Global variables
 let flights = []
@@ -34,11 +38,14 @@ let initialCameraPositioned = false
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
+let loadingScreenCreated = false
+let minLoadingTimeoutId = null
 
 const textureLoader = new THREE.TextureLoader()
 const PLANE_TEXTURE_URL = `${import.meta.env.BASE_URL || '/'}plane8.svg`
 let svgTexture = null
 let svgTexturePromise = null
+let loadingScreenElement = null
 
 // GUI controls
 const params = {
@@ -73,6 +80,82 @@ function preGenerateFlightConfigs() {
         config._randomSpeed = typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined
         config.returnFlight = params.returnFlight
         preGeneratedConfigs.push(config)
+    }
+}
+
+function createLoadingScreen() {
+    if (loadingScreenCreated) return
+    loadingScreenCreated = true
+
+    const loadingDiv = document.createElement('div')
+    loadingDiv.id = 'loading-screen'
+    loadingDiv.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #000000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    `
+
+    const spinner = document.createElement('div')
+    spinner.style.cssText = `
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top: 3px solid #58a6ff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    `
+
+    const style = document.createElement('style')
+    style.textContent = `
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    `
+    document.head.appendChild(style)
+
+    loadingDiv.appendChild(spinner)
+    document.body.appendChild(loadingDiv)
+    loadingScreenElement = loadingDiv
+}
+
+function hideUIElementsDuringLoading() {
+    const guiContainer = document.querySelector('.dg.ac')
+    if (guiContainer) {
+        guiContainer.style.display = 'none'
+    }
+    stats.dom.style.display = 'none'
+}
+
+function showUIElementsAfterLoading() {
+    const guiContainer = document.querySelector('.dg.ac')
+    if (guiContainer) {
+        guiContainer.style.display = 'block'
+    }
+    stats.dom.style.display = 'block'
+}
+
+function removeLoadingScreen() {
+    if (!loadingScreenElement) return
+    loadingScreenElement.style.opacity = '0'
+    loadingScreenElement.style.transition = 'opacity 0.5s ease-out'
+    setTimeout(() => {
+        loadingScreenElement?.remove()
+        loadingScreenElement = null
+        showUIElementsAfterLoading()
+    }, 500)
+}
+
+function checkReadyToStart() {
+    if (window.earthTextureLoaded && window.minTimeElapsed) {
+        setInitialCameraPosition()
     }
 }
 
@@ -235,6 +318,8 @@ function setInitialCameraPosition() {
     animateCameraToPosition(camera, startPosition, targetPosition, 3000, 500)
 
     initialCameraPositioned = true
+
+    removeLoadingScreen()
 }
 
 function loadSvgTexture() {
@@ -513,7 +598,8 @@ stars.addToScene(scene)
 
 // Add Earth with atmosphere
 earth = new Earth(3000, () => {
-    setTimeout(() => setInitialCameraPosition(), 500)
+    window.earthTextureLoaded = true
+    checkReadyToStart()
 })
 earth.addToScene(scene)
 
@@ -527,6 +613,14 @@ scene.add(directionalLight.target)
 scene.add(directionalLight)
 
 updateSunPosition()
+window.earthTextureLoaded = false
+window.minTimeElapsed = false
+createLoadingScreen()
+hideUIElementsDuringLoading()
+minLoadingTimeoutId = setTimeout(() => {
+    window.minTimeElapsed = true
+    checkReadyToStart()
+}, 2000)
 
 // Position camera
 camera.position.set(0, 2000, 8000)
