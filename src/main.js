@@ -7,13 +7,14 @@ import { Flight } from './Flight.js'
 import { Curves } from './Curves.js'
 import { PanesShader } from './PanesShader.js'
 import { FlightUtils } from './FlightUtils.js'
+import { Stars } from './Stars.js'
 
 // Scene setup
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000)
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setClearColor(0xEFEFEF)
+renderer.setClearColor(0x000000)
 document.querySelector('#app').appendChild(renderer.domElement)
 
 // Setup Stats.js for performance monitoring
@@ -25,6 +26,7 @@ document.body.appendChild(stats.dom)
 let flights = []
 let mergedCurves = null
 let mergedPanes = null
+let stars = null
 const clock = new THREE.Clock()
 const MAX_FLIGHTS = 30000
 let preGeneratedConfigs = []
@@ -468,6 +470,10 @@ preGenerateFlightConfigs()
 // Initialize the flights
 initializeFlights()
 
+// Add stars background
+stars = new Stars(5000, 10000, 20000)
+stars.addToScene(scene)
+
 // Add lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
 scene.add(ambientLight)
@@ -520,6 +526,10 @@ function animate() {
     // GPU Shader mode: Only update the time uniform (no per-flight work!)
     if (mergedPanes) {
         mergedPanes.update(delta)
+    }
+
+    if (stars) {
+        stars.update(delta)
     }
 
     if (enableProfiling) {
