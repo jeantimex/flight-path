@@ -9,7 +9,8 @@ import { PanesShader } from './PanesShader.js'
 import { FlightUtils } from './FlightUtils.js'
 import { Stars } from './Stars.js'
 import { Earth } from './Earth.js'
-import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition, vector3ToLatLng } from './Utils.js'
+import { Controls } from './Controls.js'
+import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition, vector3ToLatLng, hoursToTimeString } from './Utils.js'
 
 // Scene setup
 const scene = new THREE.Scene()
@@ -47,6 +48,8 @@ let svgTexture = null
 let svgTexturePromise = null
 let loadingScreenElement = null
 let footerCoordinatesElement = null
+let controlsManager = null
+let guiControls = null
 
 // GUI controls
 const params = {
@@ -128,10 +131,9 @@ function createLoadingScreen() {
 }
 
 function hideUIElementsDuringLoading() {
-    const guiContainer = document.querySelector('.dg.ac')
-    if (guiContainer) {
-        guiContainer.style.display = 'none'
-    }
+    document.querySelectorAll('.dg.ac').forEach(container => {
+        container.style.display = 'none'
+    })
     stats.dom.style.display = 'none'
     if (footerCoordinatesElement) {
         footerCoordinatesElement.style.display = 'none'
@@ -139,10 +141,9 @@ function hideUIElementsDuringLoading() {
 }
 
 function showUIElementsAfterLoading() {
-    const guiContainer = document.querySelector('.dg.ac')
-    if (guiContainer) {
-        guiContainer.style.display = 'block'
-    }
+    document.querySelectorAll('.dg.ac').forEach(container => {
+        container.style.display = 'block'
+    })
     stats.dom.style.display = 'block'
 
     if (footerCoordinatesElement) {
@@ -343,6 +344,77 @@ function applyAnimationSpeedMode() {
     })
 }
 
+function toggleAtmosphereEffect(enabled) {
+    if (earth && earth.atmosphere) {
+        earth.atmosphere.mesh.visible = enabled
+    }
+}
+
+function toggleDayNightEffect(enabled) {
+    if (enabled) {
+        updateLighting()
+    } else {
+        directionalLight.intensity = 0.5
+        ambientLight.intensity = 1.2
+    }
+}
+
+function updateLighting() {
+    if (!guiControls) return
+    if (guiControls.dayNightEffect) {
+        directionalLight.intensity = guiControls.dayBrightness
+        ambientLight.intensity = guiControls.nightBrightness
+    }
+}
+
+function setupGlobalControls() {
+    controlsManager = new Controls()
+
+    controlsManager.setup({
+        onDayNightEffectChange: toggleDayNightEffect,
+        onAtmosphereEffectChange: toggleAtmosphereEffect,
+        onResetSunPosition: () => {
+            directionalLight.position.set(0, 1000, 1000)
+            updateSunPosition()
+        },
+        onDayBrightnessChange: updateLighting,
+        onNightBrightnessChange: updateLighting,
+        onRealTimeSunChange: (value) => {
+            if (value) {
+                const currentUtc = getCurrentUtcTimeHours()
+                guiControls.simulatedTime = currentUtc
+                guiControls.timeDisplay = hoursToTimeString(currentUtc)
+                const { timeDisplay, timeSlider } = controlsManager.controllers || {}
+                if (timeDisplay) timeDisplay.updateDisplay()
+                if (timeSlider) timeSlider.updateDisplay()
+            }
+        },
+        onTimeSliderChange: (value) => {
+            guiControls.simulatedTime = value
+            guiControls.timeDisplay = hoursToTimeString(value)
+            const { timeDisplay, realTimeSun } = controlsManager.controllers || {}
+            if (timeDisplay) timeDisplay.updateDisplay()
+            if (guiControls.realTimeSun) {
+                guiControls.realTimeSun = false
+                if (realTimeSun) realTimeSun.updateDisplay()
+            }
+        },
+        onTimeDisplayChange: (value) => {
+            guiControls.timeDisplay = value
+        }
+    })
+
+    guiControls = controlsManager.getControls()
+    window.guiControlsInstance = controlsManager
+
+    document.querySelectorAll('.dg.ac').forEach(container => {
+        container.style.display = 'none'
+    })
+
+    toggleAtmosphereEffect(guiControls.atmosphereEffect)
+    toggleDayNightEffect(guiControls.dayNightEffect)
+}
+
 function applyReturnMode() {
     preGeneratedConfigs.forEach((config, index) => {
         if (!config) return
@@ -360,11 +432,33 @@ function applyReturnMode() {
 
 function updateSunPosition() {
     if (!directionalLight) return
-    const radius = earth ? earth.getRadius() : 3000
-    const sunVector = getSunVector3(radius, getCurrentUtcTimeHours())
-    directionalLight.position.copy(sunVector)
-    directionalLight.lookAt(0, 0, 0)
 
+    const radius = earth ? earth.getRadius() : 3000
+
+    if (guiControls) {
+        if (guiControls.realTimeSun) {
+            const currentUtc = getCurrentUtcTimeHours()
+            guiControls.simulatedTime = currentUtc
+            guiControls.timeDisplay = hoursToTimeString(currentUtc)
+            if (controlsManager && controlsManager.controllers) {
+                const { timeDisplay, timeSlider } = controlsManager.controllers
+                if (timeDisplay) timeDisplay.updateDisplay()
+                if (timeSlider) timeSlider.updateDisplay()
+            }
+        }
+
+        if (guiControls.dayNightEffect) {
+            const sunVector = getSunVector3(radius, guiControls.simulatedTime)
+            directionalLight.position.copy(sunVector)
+        }
+
+        updateLighting()
+    } else {
+        const sunVector = getSunVector3(radius, getCurrentUtcTimeHours())
+        directionalLight.position.copy(sunVector)
+    }
+
+    directionalLight.lookAt(0, 0, 0)
     updateCoordinateDisplay()
 }
 
@@ -685,6 +779,8 @@ directionalLight.target.position.set(0, 0, 0)
 scene.add(directionalLight.target)
 scene.add(directionalLight)
 
+setupGlobalControls()
+updateLighting()
 updateSunPosition()
 window.earthTextureLoaded = false
 window.minTimeElapsed = false
