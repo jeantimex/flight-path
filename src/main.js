@@ -38,7 +38,8 @@ let stars = null
 let earth = null
 let initialCameraPositioned = false
 const clock = new THREE.Clock()
-const MAX_FLIGHTS = 30000
+const DATA_FLIGHT_COUNT = Array.isArray(dataFlights) ? dataFlights.length : 0
+const MAX_FLIGHTS = DATA_FLIGHT_COUNT > 0 ? DATA_FLIGHT_COUNT : 30000
 const EARTH_RADIUS = 3000
 let preGeneratedConfigs = []
 let loadingScreenCreated = false
@@ -108,12 +109,12 @@ function generateParabolicControlPoints(departure, arrival, radius = EARTH_RADIU
     ]
 }
 
-function createDataFlightConfig() {
-    if (!Array.isArray(dataFlights) || dataFlights.length === 0) {
+function createDataFlightConfig(entry) {
+    if (!entry) {
         return null
     }
 
-    const { departure, arrival } = dataFlights[0] || {}
+    const { departure, arrival } = entry
     const controlPoints = generateParabolicControlPoints(departure, arrival, EARTH_RADIUS)
     if (!controlPoints.length) {
         return null
@@ -136,6 +137,25 @@ function createDataFlightConfig() {
 function preGenerateFlightConfigs() {
     preGeneratedConfigs = []
 
+    if (Array.isArray(dataFlights) && dataFlights.length > 0) {
+        dataFlights.forEach((flightEntry) => {
+            const config = createDataFlightConfig(flightEntry)
+            if (!config) {
+                return
+            }
+            const normalizedPoints = normalizeControlPoints(config.controlPoints)
+            preGeneratedConfigs.push({
+                ...config,
+                controlPoints: normalizedPoints,
+                _randomPaneColor: false,
+                _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
+                returnFlight: params.returnFlight
+            })
+        })
+
+        return
+    }
+
     for (let i = 0; i < MAX_FLIGHTS; i++) {
         const config = FlightUtils.generateRandomFlightConfig({
             segmentCount: params.segmentCount,
@@ -148,21 +168,7 @@ function preGenerateFlightConfigs() {
         config.returnFlight = params.returnFlight
         preGeneratedConfigs.push(config)
     }
-
-    const dataFlightConfig = createDataFlightConfig()
-    if (dataFlightConfig && preGeneratedConfigs.length > 0) {
-        const normalizedPoints = normalizeControlPoints(dataFlightConfig.controlPoints)
-        preGeneratedConfigs[0] = {
-            ...preGeneratedConfigs[0],
-            ...dataFlightConfig,
-            controlPoints: normalizedPoints,
-            _randomPaneColor: false,
-            _randomSpeed: typeof dataFlightConfig.animationSpeed === 'number' ? dataFlightConfig.animationSpeed : undefined,
-            returnFlight: params.returnFlight
-        }
-    }
 }
-
 function createLoadingScreen() {
     if (loadingScreenCreated) return
     loadingScreenCreated = true
@@ -674,7 +680,16 @@ function initializeFlights() {
     updateDashPattern()
     applyPaneTexture()
 
-    for (let i = 0; i < params.numFlights; i++) {
+    const availableConfigs = preGeneratedConfigs.length
+    const desiredCount = availableConfigs > 0
+        ? Math.min(params.numFlights, availableConfigs)
+        : params.numFlights
+
+    if (availableConfigs > 0 && params.numFlights !== desiredCount) {
+        params.numFlights = desiredCount
+    }
+
+    for (let i = 0; i < desiredCount; i++) {
         const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
         baseConfig.returnFlight = params.returnFlight
         const flightConfig = {
@@ -701,12 +716,14 @@ function initializeFlights() {
 // Update flight count (preserves existing flights)
 function updateFlightCount(count) {
     const oldCount = flights.length
-    params.numFlights = count
+    const availableConfigs = preGeneratedConfigs.length || MAX_FLIGHTS
+    const targetCount = Math.min(count, availableConfigs)
+    params.numFlights = targetCount
 
-    if (count > oldCount) {
+    if (targetCount > oldCount) {
         // Add new flights (starting from the beginning)
-        if (count > 1) {
-            for (let i = oldCount; i < count; i++) {
+        if (targetCount > 1) {
+            for (let i = oldCount; i < targetCount; i++) {
                 const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
                 baseConfig.returnFlight = params.returnFlight
                 const flightConfig = {
@@ -727,9 +744,9 @@ function updateFlightCount(count) {
                 mergedCurves.applyUpdates()
             }
         }
-    } else if (count < oldCount) {
+    } else if (targetCount < oldCount) {
         // Remove excess flights
-        const flightsToRemove = flights.splice(count)
+        const flightsToRemove = flights.splice(targetCount)
         flightsToRemove.forEach(flight => flight.remove())
     }
 
