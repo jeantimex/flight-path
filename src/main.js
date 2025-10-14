@@ -46,8 +46,12 @@ let loadingScreenCreated = false
 let minLoadingTimeoutId = null
 
 const textureLoader = new THREE.TextureLoader()
-const PLANE_TEXTURE_URL = `${import.meta.env.BASE_URL || '/'}plane8.svg`
+const PLANE_SVG_COUNT = 8
+const PLANE_ATLAS_COLUMNS = 4
+const PLANE_ATLAS_ROWS = 2
+const PLANE_TEXTURE_SIZE = 512
 let svgTexture = null
+let svgAtlasInfo = null
 let svgTexturePromise = null
 let loadingScreenElement = null
 let footerCoordinatesElement = null
@@ -138,6 +142,7 @@ function createDataFlightConfig(entry) {
         paneCount: 1,
         paneSize: params.planeSize,
         elevationOffset: params.elevationOffset,
+        paneTextureIndex: Math.floor(Math.random() * PLANE_SVG_COUNT),
         paneColor: params.planeColor,
         animationSpeed: params.animationSpeed,
         tiltMode: params.tiltMode,
@@ -159,10 +164,14 @@ function preGenerateFlightConfigs() {
             if (!config) {
                 return
             }
+
             const normalizedPoints = normalizeControlPoints(config.controlPoints)
+
             preGeneratedConfigs.push({
                 ...config,
                 controlPoints: normalizedPoints,
+                elevationOffset: config.elevationOffset !== undefined ? config.elevationOffset : params.elevationOffset,
+                paneTextureIndex: config.paneTextureIndex !== undefined ? config.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
                 _randomPaneColor: false,
                 _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
                 returnFlight: params.returnFlight
@@ -179,10 +188,13 @@ function preGenerateFlightConfigs() {
             numControlPoints: 2
         })
         config.elevationOffset = params.elevationOffset
+        config.paneTextureIndex = Math.floor(Math.random() * PLANE_SVG_COUNT)
         const normalizedPoints = normalizeControlPoints(config.controlPoints)
         preGeneratedConfigs.push({
             ...config,
             controlPoints: normalizedPoints,
+            elevationOffset: config.elevationOffset,
+            paneTextureIndex: config.paneTextureIndex,
             _randomPaneColor: false,
             _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
             returnFlight: params.returnFlight,
@@ -338,21 +350,12 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'planeSize', 20, 200).name('Plane Size').onChange(updatePlaneSize)
+gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
     applyAnimationSpeedMode()
 })
-gui.add(params, 'elevationOffset', 0, 200).name('Plane Elevation').onChange((value) => {
-    flights.forEach(flight => flight.setPaneElevation(value))
-    preGeneratedConfigs = preGeneratedConfigs.map(config => ({
-        ...config,
-        elevationOffset: value
-    }))
-    if (mergedPanes && typeof mergedPanes.markAllAttributesNeedUpdate === 'function') {
-        mergedPanes.markAllAttributesNeedUpdate()
-    }
-})
+gui.add(params, 'elevationOffset', 0, 200).step(5).name('Plane Elevation').onChange(updatePlaneElevation)
 gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Plane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
@@ -574,42 +577,83 @@ function setInitialCameraPosition() {
 }
 
 function loadSvgTexture() {
-    if (svgTexture) {
-        return Promise.resolve(svgTexture)
+    if (svgTexture && svgAtlasInfo) {
+        return Promise.resolve({ texture: svgTexture, info: svgAtlasInfo })
     }
 
     if (svgTexturePromise) {
         return svgTexturePromise
     }
 
+    const svgIndices = Array.from({ length: PLANE_SVG_COUNT }, (_, idx) => idx + 1)
     svgTexturePromise = (async () => {
         try {
-            const response = await fetch(PLANE_TEXTURE_URL)
-            if (!response.ok) {
-                throw new Error(`Failed to fetch SVG: ${response.status} ${response.statusText}`)
-            }
-
-            const svgText = await response.text()
-
             const parser = new DOMParser()
-            const doc = parser.parseFromString(svgText, 'image/svg+xml')
-            const svgElement = doc.documentElement
+            const rasterSize = PLANE_TEXTURE_SIZE
+            const aspect = 30 / 28
+            const heightSize = Math.round(rasterSize * aspect)
 
-            // Increase rasterization resolution while preserving aspect ratio
-            const upscaleSize = 512
-            svgElement.setAttribute('width', `${upscaleSize}`)
-            svgElement.setAttribute('height', `${Math.round(upscaleSize * (30 / 28))}`)
-            if (!svgElement.getAttribute('viewBox')) {
-                svgElement.setAttribute('viewBox', '0 0 28 30')
+            const rasterizedImages = []
+
+            for (const index of svgIndices) {
+                const url = `${import.meta.env.BASE_URL || '/'}plane${index}.svg`
+                const response = await fetch(url)
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch SVG (${index}): ${response.status} ${response.statusText}`)
+                }
+                const svgText = await response.text()
+                const doc = parser.parseFromString(svgText, 'image/svg+xml')
+                const svgElement = doc.documentElement
+                svgElement.setAttribute('width', `${rasterSize}`)
+                svgElement.setAttribute('height', `${heightSize}`)
+                if (!svgElement.getAttribute('viewBox')) {
+                    svgElement.setAttribute('viewBox', '0 0 28 30')
+                }
+
+                const serialized = new XMLSerializer().serializeToString(svgElement)
+                const blob = new Blob([serialized], { type: 'image/svg+xml' })
+                const objectUrl = URL.createObjectURL(blob)
+                const image = await new Promise((resolve, reject) => {
+                    const img = new Image()
+                    img.crossOrigin = 'anonymous'
+                    img.onload = () => {
+                        URL.revokeObjectURL(objectUrl)
+                        resolve(img)
+                    }
+                    img.onerror = (error) => {
+                        URL.revokeObjectURL(objectUrl)
+                        reject(error)
+                    }
+                    img.src = objectUrl
+                })
+                rasterizedImages.push(image)
             }
 
-            const serialized = new XMLSerializer().serializeToString(svgElement)
-            const svgBlob = new Blob([serialized], { type: 'image/svg+xml' })
-            const objectUrl = URL.createObjectURL(svgBlob)
+            const atlasCanvas = document.createElement('canvas')
+            atlasCanvas.width = PLANE_ATLAS_COLUMNS * rasterSize
+            atlasCanvas.height = PLANE_ATLAS_ROWS * heightSize
+            const ctx = atlasCanvas.getContext('2d')
+            ctx.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height)
+
+            rasterizedImages.forEach((img, idx) => {
+                const col = idx % PLANE_ATLAS_COLUMNS
+                const row = Math.floor(idx / PLANE_ATLAS_COLUMNS)
+                const x = col * rasterSize
+                const y = row * heightSize
+                ctx.drawImage(img, x, y, rasterSize, heightSize)
+            })
+
+            const atlasUrl = atlasCanvas.toDataURL('image/png')
+
+            svgAtlasInfo = {
+                columns: PLANE_ATLAS_COLUMNS,
+                rows: PLANE_ATLAS_ROWS,
+                count: PLANE_SVG_COUNT,
+                scale: { x: 1 / PLANE_ATLAS_COLUMNS, y: 1 / PLANE_ATLAS_ROWS }
+            }
 
             return await new Promise((resolve, reject) => {
-                textureLoader.load(objectUrl, (texture) => {
-                    URL.revokeObjectURL(objectUrl)
+                textureLoader.load(atlasUrl, (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace
                     texture.generateMipmaps = true
                     texture.minFilter = THREE.LinearMipmapLinearFilter
@@ -617,15 +661,14 @@ function loadSvgTexture() {
                     texture.anisotropy = renderer.capabilities?.getMaxAnisotropy?.() || 1
                     texture.needsUpdate = true
                     svgTexture = texture
-                    resolve(svgTexture)
+                    resolve({ texture: svgTexture, info: svgAtlasInfo })
                 }, undefined, (error) => {
-                    URL.revokeObjectURL(objectUrl)
-                    console.error('Failed to load high-res SVG texture:', error)
+                    console.error('Failed to load SVG atlas texture:', error)
                     reject(error)
                 })
             })
         } catch (error) {
-            console.error('Failed to prepare SVG texture:', error)
+            console.error('Failed to prepare SVG texture atlas:', error)
             svgTexturePromise = null
             throw error
         }
@@ -638,13 +681,15 @@ function applyPaneTexture() {
     if (!mergedPanes || typeof mergedPanes.setTexture !== 'function') return
 
     if (params.paneStyle === 'SVG') {
-        if (svgTexture) {
-            mergedPanes.setTexture(svgTexture)
+        if (svgTexture && svgAtlasInfo) {
+            mergedPanes.setTexture(svgTexture, svgAtlasInfo)
+            flights.forEach(flight => flight.applyPaneTextureIndex?.())
         } else {
             mergedPanes.setTexture(null)
-            loadSvgTexture().then((texture) => {
+            loadSvgTexture().then(({ texture, info }) => {
                 if (params.paneStyle === 'SVG' && mergedPanes) {
-                    mergedPanes.setTexture(texture)
+                    mergedPanes.setTexture(texture, info)
+                    flights.forEach(flight => flight.applyPaneTextureIndex?.())
                 }
             }).catch(() => {})
         }
@@ -671,6 +716,9 @@ function createFlightFromConfig(config, flightIndex) {
     flight.create()
     if ('flightData' in flightConfig) {
         flight.setFlightData(flightConfig.flightData)
+    }
+    if (flightConfig.paneTextureIndex !== undefined) {
+        flight.setPaneTextureIndex(flightConfig.paneTextureIndex)
     }
 
     // Set initial animation speed and tilt mode
@@ -733,13 +781,14 @@ function initializeFlights() {
         baseConfig.returnFlight = params.returnFlight
         const flightConfig = {
             ...baseConfig,
-            controlPoints: normalizeControlPoints(baseConfig.controlPoints),
+            controlPoints: cloneControlPoints(baseConfig.controlPoints),
             segmentCount: params.segmentCount,
             curveColor: baseConfig.curveColor,
             paneSize: params.planeSize,
             paneColor: resolvePaneColor(baseConfig),
             animationSpeed: resolveAnimationSpeed(baseConfig),
             elevationOffset: baseConfig.elevationOffset !== undefined ? baseConfig.elevationOffset : params.elevationOffset,
+            paneTextureIndex: baseConfig.paneTextureIndex !== undefined ? baseConfig.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
             returnFlight: params.returnFlight
         }
         const flight = createFlightFromConfig(flightConfig, i)
@@ -768,13 +817,14 @@ function updateFlightCount(count) {
                 baseConfig.returnFlight = params.returnFlight
                 const flightConfig = {
                     ...baseConfig,
-                    controlPoints: normalizeControlPoints(baseConfig.controlPoints),
+                    controlPoints: cloneControlPoints(baseConfig.controlPoints),
                     segmentCount: params.segmentCount,
                     curveColor: baseConfig.curveColor,
                     paneSize: params.planeSize,
                     paneColor: resolvePaneColor(baseConfig),
                     animationSpeed: resolveAnimationSpeed(baseConfig),
                     elevationOffset: baseConfig.elevationOffset !== undefined ? baseConfig.elevationOffset : params.elevationOffset,
+                            paneTextureIndex: baseConfig.paneTextureIndex !== undefined ? baseConfig.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
                     returnFlight: params.returnFlight
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
@@ -815,6 +865,19 @@ function updatePlaneSize(size) {
     // Updates will be applied in animation loop via applyUpdates()
 }
 
+// Function to update plane elevation offset
+function updatePlaneElevation(value) {
+    params.elevationOffset = value
+    preGeneratedConfigs = preGeneratedConfigs.map((config, index) => {
+        const updatedConfig = { ...config, elevationOffset: value }
+        if (index < flights.length) {
+            flights[index].setPaneElevation(value)
+        }
+        return updatedConfig
+    })
+}
+
+// Function to update path elevation offset
 // Function to update plane color
 function updatePlaneColor(color) {
     params.planeColor = color
@@ -835,7 +898,12 @@ function updateDashPattern() {
 
 function updatePaneStyle() {
     if (params.paneStyle === 'SVG') {
-        loadSvgTexture().catch(() => {})
+        loadSvgTexture().then(({ texture, info }) => {
+            if (params.paneStyle === 'SVG' && mergedPanes) {
+                mergedPanes.setTexture(texture, info)
+                flights.forEach(flight => flight.applyPaneTextureIndex?.())
+            }
+        }).catch(() => {})
     }
     initializeFlights()
 }
@@ -853,6 +921,7 @@ function randomizeAllFlightCurves() {
             segmentCount: params.segmentCount,
             curveColor: randomConfig.curveColor,
             elevationOffset: existingConfig.elevationOffset !== undefined ? existingConfig.elevationOffset : params.elevationOffset,
+            paneTextureIndex: Math.floor(Math.random() * PLANE_SVG_COUNT),
             flightData: existingConfig.flightData ?? null
         }
         updatedConfig._randomPaneColor = params.randomPaneColor
@@ -861,8 +930,9 @@ function randomizeAllFlightCurves() {
         preGeneratedConfigs[index] = updatedConfig
 
         flight.setFlightData(updatedConfig.flightData)
-        flight.setControlPoints(normalizedPoints)
+        flight.setControlPoints(cloneControlPoints(normalizedPoints))
         flight.setPaneElevation(updatedConfig.elevationOffset)
+        flight.setPaneTextureIndex(updatedConfig.paneTextureIndex)
         flight.setCurveColor(updatedConfig.curveColor)
         const paneColor = resolvePaneColor(updatedConfig)
         flight.setPaneColor(paneColor)

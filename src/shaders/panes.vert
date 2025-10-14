@@ -7,6 +7,7 @@ attribute vec4 controlPointsPack3; // (p2.z, p3.x, p3.y, p3.z)
 attribute vec3 instanceColor;
 attribute float instanceScale;
 attribute float instanceElevation;
+attribute vec4 instanceUVTransform; // (offsetX, offsetY, scaleX, scaleY)
 attribute vec4 animationParams; // (phase, speed, tiltMode, visible)
 
 // Uniforms
@@ -162,7 +163,7 @@ mat4 createOrientationMatrix(vec3 forward, vec3 upReference, float tiltMode, vec
 
 void main() {
     vColor = instanceColor;
-    vUv = uv;
+    vUv = uv * instanceUVTransform.zw + instanceUVTransform.xy;
 
     // Extract animation parameters
     float phase = animationParams.x;

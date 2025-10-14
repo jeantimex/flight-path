@@ -27,7 +27,8 @@ export class Flight {
             count: options.paneCount || 1,
             paneSize: options.paneSize || 100,
             color: options.paneColor || 0xff6666,
-            elevationOffset: options.elevationOffset !== undefined ? options.elevationOffset : 0
+            elevationOffset: options.elevationOffset !== undefined ? options.elevationOffset : 0,
+            textureIndex: options.paneTextureIndex !== undefined ? options.paneTextureIndex : 0
         }
 
         // Animation options
@@ -76,6 +77,7 @@ export class Flight {
                 }
                 this.mergedPanes.setAnimationSpeed(this.paneIndex, this.animationSpeed)
                 this.mergedPanes.setTiltMode(this.paneIndex, this.tiltMode)
+                this._applyPaneTextureIndex()
             } else {
                 // CPU-based panes: Just set initial color and size
                 this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
@@ -155,6 +157,22 @@ export class Flight {
     /**
      * Update curve color
      */
+    applyPaneTextureIndex() {
+        this._applyPaneTextureIndex()
+    }
+
+    setPaneTextureIndex(textureIndex) {
+        this.paneOptions.textureIndex = textureIndex
+        this._applyPaneTextureIndex()
+    }
+
+    _applyPaneTextureIndex() {
+        if (!this._isShaderBasedPanes || !this.mergedPanes || this.paneIndex < 0) return
+        if (typeof this.mergedPanes.setTextureIndex === 'function') {
+            this.mergedPanes.setTextureIndex(this.paneIndex, this.paneOptions.textureIndex || 0)
+        }
+    }
+
     setCurveColor(color) {
         this.curveOptions.color = color
         if (this.mergedCurves && this.curveIndex >= 0) {

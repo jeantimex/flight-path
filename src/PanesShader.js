@@ -29,12 +29,14 @@ export class PanesShader {
         this.instanceColors = new Float32Array(this.maxPanes * 3) // RGB per instance
         this.instanceScales = new Float32Array(this.maxPanes) // Scale multiplier per instance
         this.instanceElevations = new Float32Array(this.maxPanes) // Elevation offset per instance
+        this.instanceUvTransforms = new Float32Array(this.maxPanes * 4) // (offsetX, offsetY, scaleX, scaleY)
         this.animationParams = new Float32Array(this.maxPanes * 4) // (phase, speed, tiltMode, visible)
 
         this.defaultElevation = options.baseElevation !== undefined ? options.baseElevation : 0
 
         // Tracking
         this.activePanes = 0
+        this.atlasInfo = null
 
         this.initialize()
     }
@@ -72,6 +74,10 @@ export class PanesShader {
         this.geometry.setAttribute(
             'instanceElevation',
             new THREE.InstancedBufferAttribute(this.instanceElevations, 1)
+        )
+        this.geometry.setAttribute(
+            'instanceUVTransform',
+            new THREE.InstancedBufferAttribute(this.instanceUvTransforms, 4)
         )
         this.geometry.setAttribute(
             'animationParams',
@@ -116,6 +122,13 @@ export class PanesShader {
             this.animationParams[i * 4 + 1] = 0.1 // speed
             this.animationParams[i * 4 + 2] = 0.0 // tiltMode (0=perpendicular)
             this.animationParams[i * 4 + 3] = 0.0 // visible (0=hidden)
+
+            // Default UV transform covers entire texture
+            const uvIndex = i * 4
+            this.instanceUvTransforms[uvIndex] = 0.0
+            this.instanceUvTransforms[uvIndex + 1] = 0.0
+            this.instanceUvTransforms[uvIndex + 2] = 1.0
+            this.instanceUvTransforms[uvIndex + 3] = 1.0
 
             // Initialize control points to zero
             this.controlPointsPack1[i * 4] = 0
@@ -310,7 +323,7 @@ export class PanesShader {
      * Enable or disable textured rendering for panes
      * @param {THREE.Texture|null} texture - Texture to apply or null to disable
      */
-    setTexture(texture) {
+    setTexture(texture, atlasInfo = null) {
         if (!this.material || !this.material.uniforms) return
 
         this.material.uniforms.paneMap.value = texture
@@ -320,6 +333,51 @@ export class PanesShader {
             texture.needsUpdate = true
         }
         this.material.needsUpdate = true
+
+        if (texture && atlasInfo) {
+            this.atlasInfo = {
+                columns: atlasInfo.columns,
+                rows: atlasInfo.rows,
+                count: atlasInfo.count,
+                scaleX: atlasInfo.scale?.x ?? 1,
+                scaleY: atlasInfo.scale?.y ?? 1
+            }
+        } else {
+            this.atlasInfo = null
+        }
+    }
+
+    setTextureIndex(index, textureIndex = 0) {
+        if (index < 0 || index >= this.maxPanes) return
+
+        const uvIndex = index * 4
+        if (this.atlasInfo) {
+            const columns = Math.max(1, this.atlasInfo.columns || 1)
+            const rows = Math.max(1, this.atlasInfo.rows || 1)
+            const totalSlots = columns * rows
+            const count = Math.max(1, this.atlasInfo.count || totalSlots)
+            const slot = ((textureIndex % count) + count) % count
+            const safeSlot = slot % totalSlots
+            const col = safeSlot % columns
+            const row = Math.floor(safeSlot / columns)
+            const scaleX = this.atlasInfo.scaleX || (1 / columns)
+            const scaleY = this.atlasInfo.scaleY || (1 / rows)
+            const offsetX = col * scaleX
+            const offsetY = row * scaleY
+            this.instanceUvTransforms[uvIndex] = offsetX
+            this.instanceUvTransforms[uvIndex + 1] = offsetY
+            this.instanceUvTransforms[uvIndex + 2] = scaleX
+            this.instanceUvTransforms[uvIndex + 3] = scaleY
+        } else {
+            this.instanceUvTransforms[uvIndex] = 0.0
+            this.instanceUvTransforms[uvIndex + 1] = 0.0
+            this.instanceUvTransforms[uvIndex + 2] = 1.0
+            this.instanceUvTransforms[uvIndex + 3] = 1.0
+        }
+
+        if (this.geometry && this.geometry.attributes.instanceUVTransform) {
+            this.geometry.attributes.instanceUVTransform.needsUpdate = true
+        }
     }
 
     /**
@@ -371,6 +429,9 @@ export class PanesShader {
         }
         if (this.geometry.attributes.instanceElevation) {
             this.geometry.attributes.instanceElevation.needsUpdate = true
+        }
+        if (this.geometry.attributes.instanceUVTransform) {
+            this.geometry.attributes.instanceUVTransform.needsUpdate = true
         }
         if (this.geometry.attributes.animationParams) {
             this.geometry.attributes.animationParams.needsUpdate = true
