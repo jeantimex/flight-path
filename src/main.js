@@ -61,7 +61,7 @@ const params = {
     planeSize: 100,
     planeColor: 0xff6666,
     animationSpeed: 0.1,
-    tiltMode: 'Perpendicular',
+    tiltMode: 'Tangent',
     paneStyle: 'Pane',
     dashSize: 40,
     gapSize: 40,
@@ -339,9 +339,6 @@ gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSiz
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange(() => {
     applyAnimationSpeedMode()
-})
-gui.add(params, 'tiltMode', ['Perpendicular', 'Tangent']).name('Tilt Mode').onChange((value) => {
-    flights.forEach(flight => flight.setTiltMode(value))
 })
 gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
