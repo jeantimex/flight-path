@@ -115,13 +115,49 @@ function generateParabolicControlPoints(departure, arrival, radius = EARTH_RADIU
     const descentPoint1 = startSurface.clone().lerp(endSurface, 0.65).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
     const descentPoint2 = startSurface.clone().lerp(endSurface, 0.8).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
 
+    // Tangent guiding points near takeoff/landing to avoid surface penetration
+    const startNormal = startSurface.clone().normalize()
+    let pathDirStart = endSurface.clone().sub(startSurface)
+    if (pathDirStart.lengthSq() < 1e-6) {
+        pathDirStart = new THREE.Vector3().randomDirection()
+    }
+    let tangentStart = pathDirStart.clone().sub(startNormal.clone().multiplyScalar(pathDirStart.dot(startNormal)))
+    if (tangentStart.lengthSq() < 1e-6) {
+        tangentStart = new THREE.Vector3().crossVectors(startNormal, new THREE.Vector3(0, 1, 0))
+        if (tangentStart.lengthSq() < 1e-6) {
+            tangentStart = new THREE.Vector3(1, 0, 0)
+        }
+    }
+    tangentStart.normalize()
+    const tangentDistance = radius * 0.08
+    const surfaceLength = startSurface.length()
+    const startTangentPoint = startSurface.clone().add(tangentStart.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(surfaceLength)
+
+    const endNormal = endSurface.clone().normalize()
+    let pathDirEnd = startSurface.clone().sub(endSurface)
+    if (pathDirEnd.lengthSq() < 1e-6) {
+        pathDirEnd = new THREE.Vector3().randomDirection()
+    }
+    let tangentEnd = pathDirEnd.clone().sub(endNormal.clone().multiplyScalar(pathDirEnd.dot(endNormal)))
+    if (tangentEnd.lengthSq() < 1e-6) {
+        tangentEnd = new THREE.Vector3().crossVectors(endNormal, new THREE.Vector3(0, 1, 0))
+        if (tangentEnd.lengthSq() < 1e-6) {
+            tangentEnd = new THREE.Vector3(1, 0, 0)
+        }
+    }
+    tangentEnd.normalize()
+    const endSurfaceLength = endSurface.length()
+    const endTangentPoint = endSurface.clone().add(tangentEnd.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(endSurfaceLength)
+
     return [
         startSurface,
+        startTangentPoint,
         climbPoint1,
         climbPoint2,
         cruisePeak,
         descentPoint1,
         descentPoint2,
+        endTangentPoint,
         endSurface
     ]
 }
