@@ -17,6 +17,7 @@ export class Controls {
       nightBrightness: 0.8,
       dayBrightness: 2.0,
       planeSize: 100,
+      planeColor: '#ff6666',
     };
     this.callbacks = {};
   }
@@ -31,6 +32,10 @@ export class Controls {
 
     if (options.planeSize !== undefined) {
       this.guiControls.planeSize = options.planeSize;
+    }
+
+    if (options.planeColor !== undefined) {
+      this.guiControls.planeColor = this.formatColor(options.planeColor);
     }
 
     this.setupLightingControls();
@@ -167,6 +172,17 @@ export class Controls {
           this.callbacks.onPlaneSizeChange(value);
         }
       });
+
+    this.controllers.planeColor = planeFolder
+      .addColor(this.guiControls, "planeColor")
+      .name("Plane Color")
+      .onChange((value) => {
+        if (this.callbacks.onPlaneColorChange) {
+          this.callbacks.onPlaneColorChange(value);
+        }
+      });
+
+    planeFolder.open();
   }
 
   setPlaneSize(value) {
@@ -178,6 +194,27 @@ export class Controls {
     if (this.controllers.planeSize) {
       this.controllers.planeSize.updateDisplay();
     }
+  }
+
+  setPlaneColor(value) {
+    const formatted = this.formatColor(value);
+    this.guiControls.planeColor = formatted;
+    if (this.controllers.planeColor) {
+      this.controllers.planeColor.updateDisplay();
+    }
+  }
+
+  formatColor(value) {
+    if (typeof value === "string") {
+      return value.startsWith("#") ? value : `#${value}`;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return `#${value.toString(16).padStart(6, "0")}`;
+    }
+    if (value && typeof value === "object" && "r" in value) {
+      return value;
+    }
+    return this.guiControls.planeColor || "#ff6666";
   }
 
   /**

@@ -510,7 +510,6 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
     applyAnimationSpeedMode()
 })
@@ -660,10 +659,14 @@ function setupGlobalControls() {
         },
         onPlaneSizeChange: (value) => {
             updatePlaneSize(value)
+        },
+        onPlaneColorChange: (value) => {
+            updatePlaneColor(value)
         }
     }, {
         planeSize: params.planeSize,
-        planeSizeRange: { min: 50, max: 500 }
+        planeSizeRange: { min: 50, max: 500 },
+        planeColor: params.planeColor
     })
 
     guiControls = controlsManager.getControls()
@@ -1091,6 +1094,10 @@ function updatePlaneColor(color) {
         }
         return updatedConfig
     })
+
+    if (controlsManager && typeof controlsManager.setPlaneColor === 'function') {
+        controlsManager.setPlaneColor(normalizedColor)
+    }
 }
 
 function updateDashPattern() {
