@@ -2,7 +2,9 @@
 
 A stunning 3D interactive flight path visualization built with Three.js, featuring real-time flight simulation around a photorealistic Earth with GPU-accelerated rendering for optimal performance.
 
-![Flight Path Demo](https://jeantimex.github.io/flight-path/)
+https://github.com/user-attachments/assets/accd0313-8967-42b9-b41a-43e3467a78f1
+
+[Flight Path Demo](https://jeantimex.github.io/flight-path/)
 
 ## 🌟 Features
 
