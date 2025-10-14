@@ -73,7 +73,7 @@ const params = {
     hidePath: false,
     hidePlane: false,
     randomSpeed: false,
-    returnFlight: false
+    returnFlight: true
 }
 
 function createGradientColorConfig(departure) {
