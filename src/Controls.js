@@ -23,6 +23,8 @@ export class Controls {
       paneStyle: 'SVG',
       hidePlane: false,
       dashSize: 40,
+      gapSize: 40,
+      hidePath: false,
     };
     this.callbacks = {};
   }
@@ -63,10 +65,19 @@ export class Controls {
       this.guiControls.dashSize = options.dashSize;
     }
 
+    if (options.gapSize !== undefined) {
+      this.guiControls.gapSize = options.gapSize;
+    }
+
+    if (options.hidePath !== undefined) {
+      this.guiControls.hidePath = !!options.hidePath;
+    }
+
     this.setupLightingControls();
     this.setupBrightnessControls();
     this.setupFlightPathControls({
-      dashRange: options.dashRange || {}
+      dashRange: options.dashRange || {},
+      gapRange: options.gapRange || {}
     });
     this.setupPlaneControls({
       sizeRange: options.planeSizeRange || {},
@@ -193,9 +204,15 @@ export class Controls {
 
   setupFlightPathControls(config = {}) {
     const dashRange = config.dashRange || {};
+    const gapRange = config.gapRange || {};
+
     const dashMin = dashRange.min !== undefined ? dashRange.min : 0;
     const dashMax = dashRange.max !== undefined ? dashRange.max : 2000;
     const dashStep = dashRange.step !== undefined ? dashRange.step : 1;
+
+    const gapMin = gapRange.min !== undefined ? gapRange.min : 0;
+    const gapMax = gapRange.max !== undefined ? gapRange.max : 2000;
+    const gapStep = gapRange.step !== undefined ? gapRange.step : 1;
 
     const flightPathFolder = this.gui.addFolder("Flight Path");
 
@@ -210,6 +227,27 @@ export class Controls {
     if (typeof this.controllers.dashSize.step === "function") {
       this.controllers.dashSize.step(dashStep);
     }
+
+    this.controllers.gapSize = flightPathFolder
+      .add(this.guiControls, "gapSize", gapMin, gapMax)
+      .name("Dash Gap")
+      .onChange((value) => {
+        if (this.callbacks.onGapSizeChange) {
+          this.callbacks.onGapSizeChange(value);
+        }
+      });
+    if (typeof this.controllers.gapSize.step === "function") {
+      this.controllers.gapSize.step(gapStep);
+    }
+
+    this.controllers.hidePath = flightPathFolder
+      .add(this.guiControls, "hidePath")
+      .name("Hide Path")
+      .onChange((value) => {
+        if (this.callbacks.onHidePathChange) {
+          this.callbacks.onHidePathChange(value);
+        }
+      });
 
     flightPathFolder.open();
   }
@@ -366,6 +404,24 @@ export class Controls {
     this.guiControls.dashSize = value;
     if (this.controllers.dashSize) {
       this.controllers.dashSize.updateDisplay();
+    }
+  }
+
+  setGapSize(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+    this.guiControls.gapSize = value;
+    if (this.controllers.gapSize) {
+      this.controllers.gapSize.updateDisplay();
+    }
+  }
+
+  setHidePath(value) {
+    const boolValue = !!value;
+    this.guiControls.hidePath = boolValue;
+    if (this.controllers.hidePath) {
+      this.controllers.hidePath.updateDisplay();
     }
   }
 

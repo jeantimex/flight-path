@@ -510,8 +510,6 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
-gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
 // gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
 //     applyAnimationSpeedMode()
 // })
@@ -699,6 +697,12 @@ function setupGlobalControls() {
         },
         onDashSizeChange: (value) => {
             updateDashSize(value)
+        },
+        onGapSizeChange: (value) => {
+            updateGapSize(value)
+        },
+        onHidePathChange: (value) => {
+            updateHidePath(value)
         }
     }, {
         planeSize: params.planeSize,
@@ -712,7 +716,10 @@ function setupGlobalControls() {
         paneStyleOptions: ['Pane', 'SVG'],
         hidePlane: params.hidePlane,
         dashSize: params.dashSize,
-        dashRange: { min: 0, max: 2000, step: 1 }
+        dashRange: { min: 0, max: 2000, step: 1 },
+        gapSize: params.gapSize,
+        gapRange: { min: 0, max: 2000, step: 1 },
+        hidePath: params.hidePath
     })
 
     guiControls = controlsManager.getControls()
@@ -1184,6 +1191,28 @@ function updateDashSize(size) {
     if (controlsManager && typeof controlsManager.setDashSize === 'function') {
         if (controlsManager.guiControls?.dashSize !== size) {
             controlsManager.setDashSize(size)
+        }
+    }
+}
+
+function updateGapSize(size) {
+    params.gapSize = size
+    updateDashPattern()
+
+    if (controlsManager && typeof controlsManager.setGapSize === 'function') {
+        if (controlsManager.guiControls?.gapSize !== size) {
+            controlsManager.setGapSize(size)
+        }
+    }
+}
+
+function updateHidePath(value) {
+    params.hidePath = !!value
+    updatePathVisibility()
+
+    if (controlsManager && typeof controlsManager.setHidePath === 'function') {
+        if (controlsManager.guiControls?.hidePath !== params.hidePath) {
+            controlsManager.setHidePath(params.hidePath)
         }
     }
 }
