@@ -509,7 +509,7 @@ function updateCoordinateDisplay() {
 // Setup dat.GUI
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
-gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
+// gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
@@ -521,9 +521,9 @@ gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPatt
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
 gui.add(params, 'hidePlane').name('Hide Plane').onChange(updatePlaneVisibility)
-gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
-    applyAnimationSpeedMode()
-})
+// gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
+//     applyAnimationSpeedMode()
+// })
 gui.add(params, 'returnFlight').name('Return Flight').onChange(() => {
     applyReturnMode()
 })

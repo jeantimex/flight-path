@@ -38,6 +38,8 @@ export class PanesShader {
         this.activePanes = 0
         this.atlasInfo = null
         this.planesVisible = true
+        this.returnModePreferred = this.returnModeEnabled
+        this.pendingReturnCompletion = new Uint8Array(this.maxPanes)
 
         this.initialize()
     }
@@ -202,9 +204,48 @@ export class PanesShader {
      * Enable or disable return flight mode for all panes
      */
     setReturnMode(enabled) {
-        this.returnModeEnabled = !!enabled
-        if (this.material && this.material.uniforms && this.material.uniforms.returnMode) {
-            this.material.uniforms.returnMode.value = this.returnModeEnabled ? 1.0 : 0.0
+        const preferred = !!enabled
+        this.returnModePreferred = preferred
+
+        if (preferred) {
+            this.pendingReturnCompletion.fill(0)
+            if (!this.returnModeEnabled) {
+                this.returnModeEnabled = true
+                if (this.material?.uniforms?.returnMode) {
+                    this.material.uniforms.returnMode.value = 1.0
+                }
+            }
+            return
+        }
+
+        const timeUniform = this._getTimeUniform()
+        const period = 2
+        const epsilon = 1e-4
+        let needsUpdate = false
+
+        for (let i = 0; i < this.activePanes; i++) {
+            const baseIndex = i * 4
+            if (this.animationParams[baseIndex + 3] < 0.5) continue
+
+            const speed = this.animationParams[baseIndex + 1]
+            const phase = this.animationParams[baseIndex]
+            const cycle = this._wrapProgress(timeUniform * speed + phase, period)
+
+            if (cycle > 1 + epsilon) {
+                // Currently on return leg – allow it to finish
+                this.pendingReturnCompletion[i] = 1
+            } else {
+                this.pendingReturnCompletion[i] = 0
+                if (cycle > 1 - epsilon) {
+                    // Snap to start of forward leg to avoid entering return
+                    this.animationParams[baseIndex] = this._wrapProgress(phase - 1, period)
+                    needsUpdate = true
+                }
+            }
+        }
+
+        if (needsUpdate && this.geometry?.attributes?.animationParams) {
+            this.geometry.attributes.animationParams.needsUpdate = true
         }
     }
 
@@ -256,27 +297,13 @@ export class PanesShader {
         const oldSpeed = this.animationParams[baseIndex + 1]
         const oldPhase = this.animationParams[baseIndex]
 
-        const timeUniform = this.material && this.material.uniforms && this.material.uniforms.time
-            ? this.material.uniforms.time.value
-            : 0
-
+        const timeUniform = this._getTimeUniform()
         const period = this.returnModeEnabled ? 2 : 1
-        const wrapToPeriod = (value) => {
-            if (period <= 0) {
-                return 0
-            }
-            let result = value % period
-            if (result < 0) {
-                result += period
-            }
-            return result
-        }
-
-        const currentProgress = wrapToPeriod(timeUniform * oldSpeed + oldPhase)
+        const currentProgress = this._wrapProgress(timeUniform * oldSpeed + oldPhase, period)
 
         this.animationParams[baseIndex + 1] = speed
 
-        const newPhase = wrapToPeriod(currentProgress - timeUniform * speed)
+        const newPhase = this._wrapProgress(currentProgress - timeUniform * speed, period)
         this.animationParams[baseIndex] = newPhase
 
         this.geometry.attributes.animationParams.needsUpdate = true
@@ -315,13 +342,19 @@ export class PanesShader {
         if (!this.material || !this.material.uniforms) return
 
         this.material.uniforms.time.value += deltaTime
+
+        this._reconcileReturnMode()
     }
 
     /**
      * Set the number of active panes
      */
     setActivePaneCount(count) {
-        this.activePanes = Math.min(count, this.maxPanes)
+        const newCount = Math.min(count, this.maxPanes)
+        if (newCount < this.activePanes) {
+            this.pendingReturnCompletion.fill(0, newCount, this.activePanes)
+        }
+        this.activePanes = newCount
     }
 
     setPlanesVisible(visible) {
@@ -454,6 +487,81 @@ export class PanesShader {
         }
         if (this.geometry.attributes.animationParams) {
             this.geometry.attributes.animationParams.needsUpdate = true
+        }
+    }
+
+    _getTimeUniform() {
+        return this.material && this.material.uniforms && this.material.uniforms.time
+            ? this.material.uniforms.time.value
+            : 0
+    }
+
+    _wrapProgress(value, period) {
+        if (period <= 0) {
+            return 0
+        }
+        let result = value % period
+        if (result < 0) {
+            result += period
+        }
+        return result
+    }
+
+    _reconcileReturnMode() {
+        if (this.returnModePreferred) {
+            if (!this.returnModeEnabled && this.material?.uniforms?.returnMode) {
+                this.returnModeEnabled = true
+                this.material.uniforms.returnMode.value = 1.0
+            }
+            return
+        }
+
+        if (!this.returnModeEnabled) {
+            return
+        }
+
+        const timeUniform = this._getTimeUniform()
+        const period = 2
+        const epsilon = 1e-4
+        let anyPending = false
+        let needsUpdate = false
+
+        for (let i = 0; i < this.activePanes; i++) {
+            const baseIndex = i * 4
+            if (this.animationParams[baseIndex + 3] < 0.5) continue
+
+            const speed = this.animationParams[baseIndex + 1]
+            const phase = this.animationParams[baseIndex]
+            const cycle = this._wrapProgress(timeUniform * speed + phase, period)
+
+            if (this.pendingReturnCompletion[i]) {
+                if (cycle <= 1 - epsilon) {
+                    // Finished the return leg, restart forward motion
+                    this.pendingReturnCompletion[i] = 0
+                    this.animationParams[baseIndex] = this._wrapProgress(-timeUniform * speed, period)
+                    needsUpdate = true
+                } else {
+                    anyPending = true
+                }
+                continue
+            }
+
+            if (cycle > 1 + epsilon) {
+                // Prevent new return legs from starting
+                this.animationParams[baseIndex] = this._wrapProgress(phase - 1, period)
+                needsUpdate = true
+            }
+        }
+
+        if (needsUpdate && this.geometry?.attributes?.animationParams) {
+            this.geometry.attributes.animationParams.needsUpdate = true
+        }
+
+        if (!anyPending) {
+            this.returnModeEnabled = false
+            if (this.material?.uniforms?.returnMode) {
+                this.material.uniforms.returnMode.value = 0.0
+            }
         }
     }
 }

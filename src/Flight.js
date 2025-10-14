@@ -123,13 +123,20 @@ export class Flight {
      * Enable or disable return flight behaviour
      */
     setReturnFlight(enabled) {
-        this.returnFlight = !!enabled
-
-        if (this.returnFlight) {
-            this.animationTime = this.animationTime % 2
-        } else {
-            this.animationTime = this.animationTime % 1
+        const newMode = !!enabled
+        if (this.returnFlight === newMode) {
+            return
         }
+
+        if (newMode) {
+            this.animationTime = this.animationTime % 1
+        } else {
+            const cycle = this.animationTime % 2
+            const t = cycle > 1 ? 2 - cycle : cycle
+            this.animationTime = t
+        }
+
+        this.returnFlight = newMode
     }
 
     /**
