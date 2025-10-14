@@ -569,19 +569,54 @@ function loadSvgTexture() {
         return svgTexturePromise
     }
 
-    svgTexturePromise = new Promise((resolve, reject) => {
-        textureLoader.load(PLANE_TEXTURE_URL, (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace
-            texture.generateMipmaps = true
-            texture.needsUpdate = true
-            svgTexture = texture
-            resolve(svgTexture)
-        }, undefined, (error) => {
-            console.error('Failed to load SVG texture:', error)
+    svgTexturePromise = (async () => {
+        try {
+            const response = await fetch(PLANE_TEXTURE_URL)
+            if (!response.ok) {
+                throw new Error(`Failed to fetch SVG: ${response.status} ${response.statusText}`)
+            }
+
+            const svgText = await response.text()
+
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(svgText, 'image/svg+xml')
+            const svgElement = doc.documentElement
+
+            // Increase rasterization resolution while preserving aspect ratio
+            const upscaleSize = 512
+            svgElement.setAttribute('width', `${upscaleSize}`)
+            svgElement.setAttribute('height', `${Math.round(upscaleSize * (30 / 28))}`)
+            if (!svgElement.getAttribute('viewBox')) {
+                svgElement.setAttribute('viewBox', '0 0 28 30')
+            }
+
+            const serialized = new XMLSerializer().serializeToString(svgElement)
+            const svgBlob = new Blob([serialized], { type: 'image/svg+xml' })
+            const objectUrl = URL.createObjectURL(svgBlob)
+
+            return await new Promise((resolve, reject) => {
+                textureLoader.load(objectUrl, (texture) => {
+                    URL.revokeObjectURL(objectUrl)
+                    texture.colorSpace = THREE.SRGBColorSpace
+                    texture.generateMipmaps = true
+                    texture.minFilter = THREE.LinearMipmapLinearFilter
+                    texture.magFilter = THREE.LinearFilter
+                    texture.anisotropy = renderer.capabilities?.getMaxAnisotropy?.() || 1
+                    texture.needsUpdate = true
+                    svgTexture = texture
+                    resolve(svgTexture)
+                }, undefined, (error) => {
+                    URL.revokeObjectURL(objectUrl)
+                    console.error('Failed to load high-res SVG texture:', error)
+                    reject(error)
+                })
+            })
+        } catch (error) {
+            console.error('Failed to prepare SVG texture:', error)
             svgTexturePromise = null
-            reject(error)
-        })
-    })
+            throw error
+        }
+    })()
 
     return svgTexturePromise
 }
