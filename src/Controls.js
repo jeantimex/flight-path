@@ -18,6 +18,10 @@ export class Controls {
       dayBrightness: 2.0,
       planeSize: 100,
       planeColor: '#ff6666',
+      animationSpeed: 0.1,
+      elevationOffset: 15,
+      paneStyle: 'SVG',
+      hidePlane: false,
     };
     this.callbacks = {};
   }
@@ -38,9 +42,30 @@ export class Controls {
       this.guiControls.planeColor = this.formatColor(options.planeColor);
     }
 
+    if (options.animationSpeed !== undefined) {
+      this.guiControls.animationSpeed = options.animationSpeed;
+    }
+
+    if (options.elevationOffset !== undefined) {
+      this.guiControls.elevationOffset = options.elevationOffset;
+    }
+
+    if (options.paneStyle !== undefined) {
+      this.guiControls.paneStyle = options.paneStyle;
+    }
+
+    if (options.hidePlane !== undefined) {
+      this.guiControls.hidePlane = !!options.hidePlane;
+    }
+
     this.setupLightingControls();
     this.setupBrightnessControls();
-    this.setupPlaneControls(options.planeSizeRange || {});
+    this.setupPlaneControls({
+      sizeRange: options.planeSizeRange || {},
+      speedRange: options.speedRange || {},
+      elevationRange: options.elevationRange || {},
+      paneStyleOptions: options.paneStyleOptions || ['Pane', 'SVG']
+    });
   }
 
   setupLightingControls() {
@@ -158,20 +183,39 @@ export class Controls {
     brightnessFolder.open();
   }
 
-  setupPlaneControls(range = {}) {
-    const min = range.min !== undefined ? range.min : 50;
-    const max = range.max !== undefined ? range.max : 500;
-    const step = range.step !== undefined ? range.step : 1;
+  setupPlaneControls(config = {}) {
+    const sizeRange = config.sizeRange || {};
+    const speedRange = config.speedRange || {};
+    const elevationRange = config.elevationRange || {};
+    const paneStyleOptions = Array.isArray(config.paneStyleOptions) && config.paneStyleOptions.length > 0
+      ? config.paneStyleOptions
+      : ["Pane", "SVG"];
+
+    const sizeMin = sizeRange.min !== undefined ? sizeRange.min : 50;
+    const sizeMax = sizeRange.max !== undefined ? sizeRange.max : 500;
+    const sizeStep = sizeRange.step !== undefined ? sizeRange.step : 1;
+
+    const speedMin = speedRange.min !== undefined ? speedRange.min : 0.01;
+    const speedMax = speedRange.max !== undefined ? speedRange.max : 0.5;
+    const speedStep = speedRange.step !== undefined ? speedRange.step : 0.01;
+
+    const elevationMin = elevationRange.min !== undefined ? elevationRange.min : 0;
+    const elevationMax = elevationRange.max !== undefined ? elevationRange.max : 200;
+    const elevationStep = elevationRange.step !== undefined ? elevationRange.step : 5;
 
     const planeFolder = this.gui.addFolder("Plane Controls");
+
     this.controllers.planeSize = planeFolder
-      .add(this.guiControls, "planeSize", min, max, step)
+      .add(this.guiControls, "planeSize", sizeMin, sizeMax)
       .name("Plane Size")
       .onChange((value) => {
         if (this.callbacks.onPlaneSizeChange) {
           this.callbacks.onPlaneSizeChange(value);
         }
       });
+    if (typeof this.controllers.planeSize.step === "function") {
+      this.controllers.planeSize.step(sizeStep);
+    }
 
     this.controllers.planeColor = planeFolder
       .addColor(this.guiControls, "planeColor")
@@ -179,6 +223,48 @@ export class Controls {
       .onChange((value) => {
         if (this.callbacks.onPlaneColorChange) {
           this.callbacks.onPlaneColorChange(value);
+        }
+      });
+
+    this.controllers.animationSpeed = planeFolder
+      .add(this.guiControls, "animationSpeed", speedMin, speedMax)
+      .name("Fly Speed")
+      .onChange((value) => {
+        if (this.callbacks.onAnimationSpeedChange) {
+          this.callbacks.onAnimationSpeedChange(value);
+        }
+      });
+    if (typeof this.controllers.animationSpeed.step === "function") {
+      this.controllers.animationSpeed.step(speedStep);
+    }
+
+    this.controllers.elevationOffset = planeFolder
+      .add(this.guiControls, "elevationOffset", elevationMin, elevationMax)
+      .name("Plane Elevation")
+      .onChange((value) => {
+        if (this.callbacks.onPlaneElevationChange) {
+          this.callbacks.onPlaneElevationChange(value);
+        }
+      });
+    if (typeof this.controllers.elevationOffset.step === "function") {
+      this.controllers.elevationOffset.step(elevationStep);
+    }
+
+    this.controllers.paneStyle = planeFolder
+      .add(this.guiControls, "paneStyle", paneStyleOptions)
+      .name("Plane Style")
+      .onChange((value) => {
+        if (this.callbacks.onPaneStyleChange) {
+          this.callbacks.onPaneStyleChange(value);
+        }
+      });
+
+    this.controllers.hidePlane = planeFolder
+      .add(this.guiControls, "hidePlane")
+      .name("Hide Plane")
+      .onChange((value) => {
+        if (this.callbacks.onHidePlaneChange) {
+          this.callbacks.onHidePlaneChange(value);
         }
       });
 
@@ -204,6 +290,44 @@ export class Controls {
     }
   }
 
+  setAnimationSpeed(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+    this.guiControls.animationSpeed = value;
+    if (this.controllers.animationSpeed) {
+      this.controllers.animationSpeed.updateDisplay();
+    }
+  }
+
+  setPlaneElevation(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+    this.guiControls.elevationOffset = value;
+    if (this.controllers.elevationOffset) {
+      this.controllers.elevationOffset.updateDisplay();
+    }
+  }
+
+  setPaneStyle(value) {
+    if (typeof value !== "string") {
+      return;
+    }
+    this.guiControls.paneStyle = value;
+    if (this.controllers.paneStyle) {
+      this.controllers.paneStyle.updateDisplay();
+    }
+  }
+
+  setHidePlane(value) {
+    const boolValue = !!value;
+    this.guiControls.hidePlane = boolValue;
+    if (this.controllers.hidePlane) {
+      this.controllers.hidePlane.updateDisplay();
+    }
+  }
+
   formatColor(value) {
     if (typeof value === "string") {
       return value.startsWith("#") ? value : `#${value}`;
@@ -211,8 +335,12 @@ export class Controls {
     if (typeof value === "number" && Number.isFinite(value)) {
       return `#${value.toString(16).padStart(6, "0")}`;
     }
-    if (value && typeof value === "object" && "r" in value) {
-      return value;
+    if (value && typeof value === "object") {
+      const r = Math.round(value.r ?? value.red ?? 0);
+      const g = Math.round(value.g ?? value.green ?? 0);
+      const b = Math.round(value.b ?? value.blue ?? 0);
+      const hex = ((r << 16) | (g << 8) | b) >>> 0;
+      return `#${hex.toString(16).padStart(6, "0")}`;
     }
     return this.guiControls.planeColor || "#ff6666";
   }

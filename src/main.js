@@ -510,15 +510,9 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
-    applyAnimationSpeedMode()
-})
-gui.add(params, 'elevationOffset', 0, 200).step(5).name('Plane Elevation').onChange(updatePlaneElevation)
-gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Plane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
-gui.add(params, 'hidePlane').name('Hide Plane').onChange(updatePlaneVisibility)
 // gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
 //     applyAnimationSpeedMode()
 // })
@@ -574,6 +568,21 @@ function updatePlaneVisibility() {
     }
 }
 
+function setHidePlane(value) {
+    const shouldHide = !!value
+    if (params.hidePlane !== shouldHide) {
+        params.hidePlane = shouldHide
+    }
+
+    updatePlaneVisibility()
+
+    if (controlsManager && typeof controlsManager.setHidePlane === 'function') {
+        if (controlsManager.guiControls?.hidePlane !== shouldHide) {
+            controlsManager.setHidePlane(shouldHide)
+        }
+    }
+}
+
 function generateRandomSpeed() {
     return THREE.MathUtils.randFloat(0.03, 0.25)
 }
@@ -597,6 +606,19 @@ function applyAnimationSpeedMode() {
         const speed = resolveAnimationSpeed(config)
         flight.setAnimationSpeed(speed)
     })
+}
+
+function updateAnimationSpeed(value) {
+    const numeric = Number(value)
+    const speed = Number.isFinite(numeric) ? numeric : params.animationSpeed
+    params.animationSpeed = speed
+    applyAnimationSpeedMode()
+
+    if (controlsManager && typeof controlsManager.setAnimationSpeed === 'function') {
+        if (controlsManager.guiControls?.animationSpeed !== speed) {
+            controlsManager.setAnimationSpeed(speed)
+        }
+    }
 }
 
 function toggleAtmosphereEffect(enabled) {
@@ -662,11 +684,31 @@ function setupGlobalControls() {
         },
         onPlaneColorChange: (value) => {
             updatePlaneColor(value)
+        },
+        onAnimationSpeedChange: (value) => {
+            params.randomSpeed = false
+            updateAnimationSpeed(value)
+        },
+        onPlaneElevationChange: (value) => {
+            updatePlaneElevation(value)
+        },
+        onPaneStyleChange: (value) => {
+            updatePaneStyle(value)
+        },
+        onHidePlaneChange: (value) => {
+            setHidePlane(value)
         }
     }, {
         planeSize: params.planeSize,
         planeSizeRange: { min: 50, max: 500 },
-        planeColor: params.planeColor
+        planeColor: params.planeColor,
+        animationSpeed: params.animationSpeed,
+        speedRange: { min: 0.01, max: 0.5, step: 0.01 },
+        elevationOffset: params.elevationOffset,
+        elevationRange: { min: 0, max: 200, step: 5 },
+        paneStyle: params.paneStyle,
+        paneStyleOptions: ['Pane', 'SVG'],
+        hidePlane: params.hidePlane
     })
 
     guiControls = controlsManager.getControls()
@@ -1064,7 +1106,9 @@ function updatePlaneSize(size) {
         paneSize: size
     }))
     if (controlsManager && typeof controlsManager.setPlaneSize === 'function') {
-        controlsManager.setPlaneSize(size)
+        if (controlsManager.guiControls?.planeSize !== size) {
+            controlsManager.setPlaneSize(size)
+        }
     }
     // Updates will be applied in animation loop via applyUpdates()
 }
@@ -1079,12 +1123,31 @@ function updatePlaneElevation(value) {
         }
         return updatedConfig
     })
+
+    if (controlsManager && typeof controlsManager.setPlaneElevation === 'function') {
+        if (controlsManager.guiControls?.elevationOffset !== value) {
+            controlsManager.setPlaneElevation(value)
+        }
+    }
 }
 
 // Function to update path elevation offset
 // Function to update plane color
 function updatePlaneColor(color) {
-    const normalizedColor = parseHexColor(color, DEFAULT_PLANE_COLOR)
+    let inputColor = color
+    if (color && typeof color === 'object') {
+        const clamp = (component) => {
+            const numeric = Number(component)
+            if (!Number.isFinite(numeric)) return 0
+            return Math.max(0, Math.min(255, Math.round(numeric)))
+        }
+        const r = clamp(color.r ?? color.red)
+        const g = clamp(color.g ?? color.green)
+        const b = clamp(color.b ?? color.blue)
+        inputColor = (r << 16) | (g << 8) | b
+    }
+
+    const normalizedColor = parseHexColor(inputColor, DEFAULT_PLANE_COLOR)
     params.planeColor = normalizedColor
 
     preGeneratedConfigs = preGeneratedConfigs.map((config, index) => {
@@ -1096,7 +1159,10 @@ function updatePlaneColor(color) {
     })
 
     if (controlsManager && typeof controlsManager.setPlaneColor === 'function') {
-        controlsManager.setPlaneColor(normalizedColor)
+        const formatted = `#${normalizedColor.toString(16).padStart(6, '0')}`
+        if (controlsManager.guiControls?.planeColor !== formatted) {
+            controlsManager.setPlaneColor(normalizedColor)
+        }
     }
 }
 
@@ -1107,7 +1173,18 @@ function updateDashPattern() {
     }
 }
 
-function updatePaneStyle() {
+function updatePaneStyle(style) {
+    const nextStyle = typeof style === 'string' ? style : params.paneStyle
+    if (params.paneStyle !== nextStyle) {
+        params.paneStyle = nextStyle
+    }
+
+    if (controlsManager && typeof controlsManager.setPaneStyle === 'function') {
+        if (controlsManager.guiControls?.paneStyle !== params.paneStyle) {
+            controlsManager.setPaneStyle(params.paneStyle)
+        }
+    }
+
     if (params.paneStyle === 'SVG') {
         loadSvgTexture().then(({ texture, info }) => {
             if (params.paneStyle === 'SVG' && mergedPanes) {
@@ -1115,7 +1192,10 @@ function updatePaneStyle() {
                 flights.forEach(flight => flight.applyPaneTextureIndex?.())
             }
         }).catch(() => {})
+    } else if (mergedPanes) {
+        mergedPanes.setTexture(null)
     }
+
     initializeFlights()
 }
 
