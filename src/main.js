@@ -508,14 +508,10 @@ function updateCoordinateDisplay() {
 
 // Setup dat.GUI
 const gui = new dat.GUI()
-gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 // gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
 //     applyAnimationSpeedMode()
 // })
-gui.add(params, 'returnFlight').name('Return Flight').onChange(() => {
-    applyReturnMode()
-})
 
 function normalizeControlPoints(points) {
     const sourcePoints = points && points.length ? cloneControlPoints(points) : []
@@ -703,6 +699,12 @@ function setupGlobalControls() {
         },
         onHidePathChange: (value) => {
             updateHidePath(value)
+        },
+        onFlightCountChange: (value) => {
+            updateFlightCount(value)
+        },
+        onReturnFlightChange: (value) => {
+            updateReturnFlight(value)
         }
     }, {
         planeSize: params.planeSize,
@@ -719,7 +721,10 @@ function setupGlobalControls() {
         dashRange: { min: 0, max: 2000, step: 1 },
         gapSize: params.gapSize,
         gapRange: { min: 0, max: 2000, step: 1 },
-        hidePath: params.hidePath
+        hidePath: params.hidePath,
+        numFlights: params.numFlights,
+        flightCountRange: { min: 1, max: MAX_FLIGHTS, step: 1 },
+        returnFlight: params.returnFlight
     })
 
     guiControls = controlsManager.getControls()
@@ -1097,6 +1102,13 @@ function updateFlightCount(count) {
     // Update visible counts in merged renderers
     updatePathVisibility()
     updatePlaneVisibility()
+
+    // Sync with Controls.js
+    if (controlsManager && typeof controlsManager.setFlightCount === 'function') {
+        if (controlsManager.guiControls?.numFlights !== params.numFlights) {
+            controlsManager.setFlightCount(params.numFlights)
+        }
+    }
 }
 
 // Function to update segment count
@@ -1213,6 +1225,17 @@ function updateHidePath(value) {
     if (controlsManager && typeof controlsManager.setHidePath === 'function') {
         if (controlsManager.guiControls?.hidePath !== params.hidePath) {
             controlsManager.setHidePath(params.hidePath)
+        }
+    }
+}
+
+function updateReturnFlight(value) {
+    params.returnFlight = !!value
+    applyReturnMode()
+
+    if (controlsManager && typeof controlsManager.setReturnFlight === 'function') {
+        if (controlsManager.guiControls?.returnFlight !== params.returnFlight) {
+            controlsManager.setReturnFlight(params.returnFlight)
         }
     }
 }

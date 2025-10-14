@@ -25,6 +25,8 @@ export class Controls {
       dashSize: 40,
       gapSize: 40,
       hidePath: false,
+      numFlights: 5000,
+      returnFlight: true,
     };
     this.callbacks = {};
   }
@@ -73,8 +75,19 @@ export class Controls {
       this.guiControls.hidePath = !!options.hidePath;
     }
 
+    if (options.numFlights !== undefined) {
+      this.guiControls.numFlights = options.numFlights;
+    }
+
+    if (options.returnFlight !== undefined) {
+      this.guiControls.returnFlight = !!options.returnFlight;
+    }
+
     this.setupLightingControls();
     this.setupBrightnessControls();
+    this.setupFlightControls({
+      flightCountRange: options.flightCountRange || {}
+    });
     this.setupFlightPathControls({
       dashRange: options.dashRange || {},
       gapRange: options.gapRange || {}
@@ -200,6 +213,38 @@ export class Controls {
       });
 
     brightnessFolder.open();
+  }
+
+  setupFlightControls(config = {}) {
+    const flightCountRange = config.flightCountRange || {};
+    const countMin = flightCountRange.min !== undefined ? flightCountRange.min : 1;
+    const countMax = flightCountRange.max !== undefined ? flightCountRange.max : 30000;
+    const countStep = flightCountRange.step !== undefined ? flightCountRange.step : 1;
+
+    const flightControlsFolder = this.gui.addFolder("Flight Controls");
+
+    this.controllers.numFlights = flightControlsFolder
+      .add(this.guiControls, "numFlights", countMin, countMax)
+      .name("Flight Count")
+      .onChange((value) => {
+        if (this.callbacks.onFlightCountChange) {
+          this.callbacks.onFlightCountChange(value);
+        }
+      });
+    if (typeof this.controllers.numFlights.step === "function") {
+      this.controllers.numFlights.step(countStep);
+    }
+
+    this.controllers.returnFlight = flightControlsFolder
+      .add(this.guiControls, "returnFlight")
+      .name("Return Flight")
+      .onChange((value) => {
+        if (this.callbacks.onReturnFlightChange) {
+          this.callbacks.onReturnFlightChange(value);
+        }
+      });
+
+    flightControlsFolder.open();
   }
 
   setupFlightPathControls(config = {}) {
@@ -422,6 +467,24 @@ export class Controls {
     this.guiControls.hidePath = boolValue;
     if (this.controllers.hidePath) {
       this.controllers.hidePath.updateDisplay();
+    }
+  }
+
+  setFlightCount(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+    this.guiControls.numFlights = value;
+    if (this.controllers.numFlights) {
+      this.controllers.numFlights.updateDisplay();
+    }
+  }
+
+  setReturnFlight(value) {
+    const boolValue = !!value;
+    this.guiControls.returnFlight = boolValue;
+    if (this.controllers.returnFlight) {
+      this.controllers.returnFlight.updateDisplay();
     }
   }
 
