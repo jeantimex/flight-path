@@ -94,7 +94,7 @@ let guiControls = null
 
 // GUI controls
 const params = {
-    numFlights: 1,
+    numFlights: Math.min(5000, MAX_FLIGHTS),
     elevationOffset: 15,
     segmentCount: 100,
     planeSize: 100,
