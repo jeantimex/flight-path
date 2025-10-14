@@ -62,7 +62,7 @@ const params = {
     planeColor: 0xff6666,
     animationSpeed: 0.1,
     tiltMode: 'Tangent',
-    paneStyle: 'Pane',
+    paneStyle: 'SVG',
     dashSize: 40,
     gapSize: 40,
     randomPaneColor: false,
