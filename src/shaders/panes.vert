@@ -101,12 +101,17 @@ vec3 evaluateCatmullRom(float t, out vec3 tangent) {
 }
 
 // Create rotation matrix to orient pane along curve
-mat4 createOrientationMatrix(vec3 forward, vec3 up, float tiltMode) {
+mat4 createOrientationMatrix(vec3 forward, vec3 upReference, float tiltMode, vec3 surfaceNormal) {
     // Normalize forward direction
     vec3 normalizedForward = normalize(forward);
+    vec3 referenceUp = upReference;
 
     // Calculate right vector (perpendicular to forward and up)
-    vec3 right = normalize(cross(up, normalizedForward));
+    vec3 right = normalize(cross(referenceUp, normalizedForward));
+    if (length(right) < 1e-5) {
+        referenceUp = abs(normalizedForward.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        right = normalize(cross(referenceUp, normalizedForward));
+    }
 
     // Recalculate up vector (perpendicular to forward and right)
     vec3 newUp = normalize(cross(normalizedForward, right));
@@ -123,21 +128,32 @@ mat4 createOrientationMatrix(vec3 forward, vec3 up, float tiltMode) {
             0.0, 0.0, 0.0, 1.0                           // Column 3 (translation)
         );
     } else {
-        // Tangent mode: pane lies along forward direction (rotated 90 degrees)
+        // Tangent mode: pane lies on Earth's surface (normal aligns with surface normal)
+        vec3 normal = normalize(surfaceNormal);
+        if (length(normal) < 1e-5) {
+            normal = vec3(0.0, 1.0, 0.0);
+        }
+
+        vec3 tangentDir = normalize(normalizedForward);
+        if (length(tangentDir) < 1e-5) {
+            tangentDir = vec3(1.0, 0.0, 0.0);
+        }
+
+        vec3 binormal = normalize(cross(normal, tangentDir));
+        if (length(binormal) < 1e-5) {
+            binormal = normalize(cross(vec3(0.0, 1.0, 0.0), normal));
+            if (length(binormal) < 1e-5) {
+                binormal = vec3(1.0, 0.0, 0.0);
+            }
+        }
+        tangentDir = normalize(cross(binormal, normal));
+
         rotationMatrix = mat4(
-            right.x, right.y, right.z, 0.0,
-            newUp.x, newUp.y, newUp.z, 0.0,
-            normalizedForward.x, normalizedForward.y, normalizedForward.z, 0.0,
+            binormal.x, binormal.y, binormal.z, 0.0,
+            tangentDir.x, tangentDir.y, tangentDir.z, 0.0,
+            normal.x, normal.y, normal.z, 0.0,
             0.0, 0.0, 0.0, 1.0
         );
-        // Apply 90-degree rotation around X-axis
-        mat4 tiltRotation = mat4(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, -1.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 1.0
-        );
-        rotationMatrix = rotationMatrix * tiltRotation;
     }
 
     return rotationMatrix;
@@ -183,9 +199,10 @@ void main() {
 
     // Default up vector
     vec3 up = vec3(0.0, 1.0, 0.0);
+    vec3 surfaceNormal = normalize(curvePosition);
 
     // Create orientation matrix
-    mat4 rotationMatrix = createOrientationMatrix(tangent, up, tiltMode);
+    mat4 rotationMatrix = createOrientationMatrix(tangent, up, tiltMode, surfaceNormal);
 
     // Apply per-instance scale to vertex position
     vec3 scaledPosition = position * instanceScale;

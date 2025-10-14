@@ -608,13 +608,6 @@ function applyPaneTexture() {
     }
 }
 
-const curveActions = {
-    randomizeCurve() {
-        randomizeAllFlightCurves()
-    }
-}
-gui.add(curveActions, 'randomizeCurve').name('Randomize All Curves')
-
 function cloneControlPoints(points) {
     return points.map(point => point.clone())
 }
