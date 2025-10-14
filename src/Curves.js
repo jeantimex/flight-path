@@ -85,8 +85,9 @@ export class Curves {
         for (let i = 0; i < this.maxCurves; i++) {
             this.curveData.push({
                 controlPoints: [],
-                color: new THREE.Color(0xffffff),
-                visible: false
+                color: 0xFFFFFF,
+                visible: false,
+                metadata: null
             })
         }
     }
@@ -97,7 +98,7 @@ export class Curves {
      * @param {Array<THREE.Vector3>} controlPoints - Control points for the curve
      * @param {number|THREE.Color} color - Color for this curve
      */
-    setCurve(curveIndex, controlPoints, color = 0x4488ff) {
+    setCurve(curveIndex, controlPoints, color = 0x4488ff, metadata = null) {
         if (curveIndex < 0 || curveIndex >= this.maxCurves) {
             console.warn(`Curve index ${curveIndex} out of bounds`)
             return
@@ -111,7 +112,8 @@ export class Curves {
         // Store curve data
         const curveData = this.curveData[curveIndex]
         curveData.controlPoints = controlPoints
-        curveData.color = color instanceof THREE.Color ? color : new THREE.Color(color)
+        curveData.color = color
+        curveData.metadata = metadata ?? null
         curveData.visible = true
 
         // Create the curve
@@ -137,23 +139,15 @@ export class Curves {
             this.positions[bufferIndex + 4] = endPoint.y
             this.positions[bufferIndex + 5] = endPoint.z
 
-            // Colors duplicated per segment
-            this.colors[bufferIndex] = curveData.color.r
-            this.colors[bufferIndex + 1] = curveData.color.g
-            this.colors[bufferIndex + 2] = curveData.color.b
-
-            this.colors[bufferIndex + 3] = curveData.color.r
-            this.colors[bufferIndex + 4] = curveData.color.g
-            this.colors[bufferIndex + 5] = curveData.color.b
-
             this.lineDistances[vertexIndex] = distance
             distance += startPoint.distanceTo(endPoint)
             this.lineDistances[vertexIndex + 1] = distance
         }
 
+        this._applyColorToCurve(curveIndex)
+
         // Mark for update
         this.needsPositionUpdate = true
-        this.needsColorUpdate = true
         this.needsLineDistanceUpdate = true
 
         // Update curve count if needed
@@ -168,21 +162,118 @@ export class Curves {
      * @param {number} curveIndex - Index of the curve
      * @param {number|THREE.Color} color - New color
      */
-    setCurveColor(curveIndex, color) {
+    setCurveColor(curveIndex, color, metadata) {
         if (curveIndex < 0 || curveIndex >= this.maxCurves) return
 
         const curveData = this.curveData[curveIndex]
         if (!curveData.visible) return
 
-        curveData.color = color instanceof THREE.Color ? color : new THREE.Color(color)
+        curveData.color = color
+        if (metadata !== undefined) {
+            curveData.metadata = metadata ?? null
+        }
 
-        // Update color buffer
-        const vertexOffset = curveIndex * this.verticesPerCurve * 3
-        const totalVertices = this.verticesPerCurve * 3
-        for (let i = 0; i < totalVertices; i += 3) {
-            this.colors[vertexOffset + i] = curveData.color.r
-            this.colors[vertexOffset + i + 1] = curveData.color.g
-            this.colors[vertexOffset + i + 2] = curveData.color.b
+        this._applyColorToCurve(curveIndex)
+    }
+
+    _computeGradientParams(color, metadata) {
+        let source = null
+
+        if (color && typeof color === 'object' && color.type === 'gradient') {
+            source = {
+                lat: color.departureLat ?? 0,
+                lng: color.departureLng ?? 0
+            }
+        } else if (metadata && metadata.departure) {
+            source = {
+                lat: metadata.departure.lat ?? 0,
+                lng: metadata.departure.lng ?? 0
+            }
+        }
+
+        if (!source) {
+            return null
+        }
+
+        const lng = source.lng
+        const lat = source.lat
+        const hue = ((lng + 180) % 360) / 360
+        const latFactor = Math.min(Math.abs(lat) / 90, 1)
+        const saturation = THREE.MathUtils.clamp(0.6 + (0.3 * (1 - latFactor)), 0, 1)
+
+        return {
+            hue,
+            saturation,
+            lightnessStart: 0.35,
+            lightnessEnd: 0.75
+        }
+    }
+
+    _resolveSolidColor(color) {
+        if (color instanceof THREE.Color) {
+            return color
+        }
+        if (typeof color === 'number') {
+            return new THREE.Color(color)
+        }
+        if (color && typeof color === 'object' && color.isColor === true) {
+            return color
+        }
+        return new THREE.Color(0x4488ff)
+    }
+
+    _getColorForProgress(params, progress, targetColor) {
+        const target = targetColor || new THREE.Color()
+        const clampedProgress = THREE.MathUtils.clamp(progress, 0, 1)
+        const lightness = THREE.MathUtils.clamp(
+            params.lightnessStart + (params.lightnessEnd - params.lightnessStart) * clampedProgress,
+            0,
+            1
+        )
+        target.setHSL(params.hue, params.saturation, lightness)
+        return target
+    }
+
+    _applyColorToCurve(curveIndex) {
+        if (curveIndex < 0 || curveIndex >= this.maxCurves) return
+
+        const curveData = this.curveData[curveIndex]
+        if (!curveData.visible) return
+
+        const gradientParams = this._computeGradientParams(curveData.color, curveData.metadata)
+        const hasGradient = !!gradientParams
+
+        const vertexOffset = curveIndex * this.verticesPerCurve
+        const startColor = new THREE.Color()
+        const endColor = new THREE.Color()
+        const solidColor = hasGradient ? null : this._resolveSolidColor(curveData.color)
+
+        for (let segmentIndex = 0; segmentIndex < this.segmentsPerCurve; segmentIndex++) {
+            const vertexIndex = vertexOffset + segmentIndex * this.verticesPerSegment
+            const bufferIndex = vertexIndex * 3
+
+            if (hasGradient) {
+                const startProgress = segmentIndex / this.segmentsPerCurve
+                const endProgress = (segmentIndex + 1) / this.segmentsPerCurve
+                this._getColorForProgress(gradientParams, startProgress, startColor)
+                this._getColorForProgress(gradientParams, endProgress, endColor)
+
+                this.colors[bufferIndex] = startColor.r
+                this.colors[bufferIndex + 1] = startColor.g
+                this.colors[bufferIndex + 2] = startColor.b
+
+                this.colors[bufferIndex + 3] = endColor.r
+                this.colors[bufferIndex + 4] = endColor.g
+                this.colors[bufferIndex + 5] = endColor.b
+            } else {
+                this.colors[bufferIndex] = solidColor.r
+                this.colors[bufferIndex + 1] = solidColor.g
+                this.colors[bufferIndex + 2] = solidColor.b
+
+                this.colors[bufferIndex + 3] = solidColor.r
+                this.colors[bufferIndex + 4] = solidColor.g
+                this.colors[bufferIndex + 5] = solidColor.b
+            }
         }
 
         this.needsColorUpdate = true

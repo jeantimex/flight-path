@@ -34,6 +34,7 @@ export class Flight {
         this.animationSpeedTarget = this.animationSpeed
         this.tiltMode = options.tiltMode || 'Perpendicular'
         this.returnFlight = options.returnFlight || false
+        this.flightData = options.flightData || null
 
         // Cached curve for performance (used for CPU-based panes)
         this._cachedCurve = null
@@ -51,7 +52,8 @@ export class Flight {
             this.mergedCurves.setCurve(
                 this.curveIndex,
                 this.controlPoints,
-                this.curveOptions.color
+                this.curveOptions.color,
+                this.flightData
             )
             // Create cached curve for CPU-based pane animation
             this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
@@ -130,7 +132,8 @@ export class Flight {
             this.mergedCurves.setCurve(
                 this.curveIndex,
                 this.controlPoints,
-                this.curveOptions.color
+                this.curveOptions.color,
+                this.flightData
             )
             // Update cached curve
             this._cachedCurve = new THREE.CatmullRomCurve3(this.controlPoints)
@@ -148,7 +151,7 @@ export class Flight {
     setCurveColor(color) {
         this.curveOptions.color = color
         if (this.mergedCurves && this.curveIndex >= 0) {
-            this.mergedCurves.setCurveColor(this.curveIndex, color)
+            this.mergedCurves.setCurveColor(this.curveIndex, color, this.flightData)
         }
     }
 
@@ -296,5 +299,9 @@ export class Flight {
             curve.getPoint(0.666),
             curve.getPoint(1.0)
         ]
+    }
+
+    setFlightData(data) {
+        this.flightData = data || null
     }
 }
