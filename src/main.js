@@ -11,6 +11,7 @@ import { Stars } from './Stars.js'
 import { Earth } from './Earth.js'
 import { Controls } from './Controls.js'
 import { flights as dataFlights } from './Data.js'
+import { planes as planeDefinitions } from './Planes.js'
 import { getSunVector3, getCurrentUtcTimeHours, animateCameraToPosition, vector3ToLatLng, hoursToTimeString, latLngToVector3 } from './Utils.js'
 
 // Scene setup
@@ -45,8 +46,41 @@ let preGeneratedConfigs = []
 let loadingScreenCreated = false
 let minLoadingTimeoutId = null
 
+const DEFAULT_PLANE_COLOR = 0xff6666
+const FALLBACK_PLANE_COUNT = 8
+
+function parseHexColor(colorValue, fallback = DEFAULT_PLANE_COLOR) {
+    if (typeof colorValue === 'number' && Number.isFinite(colorValue)) {
+        return colorValue
+    }
+    if (typeof colorValue === 'string') {
+        const normalized = colorValue.trim().replace(/^#/, '')
+        if (normalized.length > 0) {
+            const parsed = parseInt(normalized, 16)
+            if (!Number.isNaN(parsed)) {
+                return parsed
+            }
+        }
+    }
+    return fallback
+}
+
+const planeEntries = Array.isArray(planeDefinitions) && planeDefinitions.length > 0
+    ? planeDefinitions.map((plane, index) => ({
+        ...plane,
+        atlasIndex: index
+    }))
+    : Array.from({ length: FALLBACK_PLANE_COUNT }, (_, index) => ({
+        name: `plane${index + 1}`,
+        svg: `plane${index + 1}.svg`,
+        color: `#${DEFAULT_PLANE_COLOR.toString(16).padStart(6, '0')}`,
+        atlasIndex: index
+    }))
+
+const PLANE_SVG_COUNT = planeEntries.length
+const INITIAL_PLANE_COLOR = parseHexColor(planeEntries[0]?.color, DEFAULT_PLANE_COLOR)
+
 const textureLoader = new THREE.TextureLoader()
-const PLANE_SVG_COUNT = 8
 const PLANE_ATLAS_COLUMNS = 4
 const PLANE_ATLAS_ROWS = 2
 const PLANE_TEXTURE_SIZE = 512
@@ -64,7 +98,7 @@ const params = {
     elevationOffset: 15,
     segmentCount: 100,
     planeSize: 100,
-    planeColor: 0xff6666,
+    planeColor: INITIAL_PLANE_COLOR,
     animationSpeed: 0.1,
     tiltMode: 'Tangent',
     paneStyle: 'SVG',
@@ -74,6 +108,91 @@ const params = {
     hidePlane: false,
     randomSpeed: false,
     returnFlight: true
+}
+
+function clonePlaneEntry(entry) {
+    if (!entry) return null
+    const { name, svg, color, atlasIndex } = entry
+    return { name, svg, color, atlasIndex }
+}
+
+function getPlaneEntryByAtlasIndex(index) {
+    if (typeof index !== 'number') return null
+    if (index < 0 || index >= planeEntries.length) return null
+    return planeEntries[index]
+}
+
+function getPlaneEntryBySvg(svgName) {
+    if (typeof svgName !== 'string' || !svgName) return null
+    return planeEntries.find(entry => entry.svg === svgName) || null
+}
+
+function getPlaneEntryByName(name) {
+    if (typeof name !== 'string' || !name) return null
+    return planeEntries.find(entry => entry.name === name) || null
+}
+
+function getRandomPlaneEntry() {
+    if (!planeEntries.length) return null
+    const randomIndex = Math.floor(Math.random() * planeEntries.length)
+    return planeEntries[randomIndex]
+}
+
+function ensurePlaneDefaults(config = {}) {
+    const providedPlaneInfo = config.planeInfo
+    let planeEntry = null
+
+    if (providedPlaneInfo && typeof providedPlaneInfo === 'object') {
+        if (typeof providedPlaneInfo.atlasIndex === 'number') {
+            planeEntry = getPlaneEntryByAtlasIndex(providedPlaneInfo.atlasIndex)
+        }
+        if (!planeEntry && providedPlaneInfo.svg) {
+            planeEntry = getPlaneEntryBySvg(providedPlaneInfo.svg)
+        }
+        if (!planeEntry && providedPlaneInfo.name) {
+            planeEntry = getPlaneEntryByName(providedPlaneInfo.name)
+        }
+    }
+
+    if (!planeEntry && typeof config.paneTextureIndex === 'number') {
+        planeEntry = getPlaneEntryByAtlasIndex(config.paneTextureIndex)
+    }
+
+    if (!planeEntry) {
+        planeEntry = getRandomPlaneEntry()
+    }
+
+    if (!planeEntry) {
+        const fallbackColor = typeof config.paneColor === 'number'
+            ? config.paneColor
+            : DEFAULT_PLANE_COLOR
+        const fallbackTextureIndex = typeof config.paneTextureIndex === 'number'
+            ? config.paneTextureIndex
+            : 0
+
+        return {
+            ...config,
+            paneColor: fallbackColor,
+            paneTextureIndex: fallbackTextureIndex,
+            planeInfo: providedPlaneInfo ?? null
+        }
+    }
+
+    return {
+        ...config,
+        paneColor: parseHexColor(planeEntry.color, DEFAULT_PLANE_COLOR),
+        paneTextureIndex: planeEntry.atlasIndex,
+        planeInfo: clonePlaneEntry(planeEntry)
+    }
+}
+
+function assignRandomPlane(config = {}) {
+    return ensurePlaneDefaults({
+        ...config,
+        planeInfo: null,
+        paneTextureIndex: undefined,
+        paneColor: undefined
+    })
 }
 
 function createGradientColorConfig(departure) {
@@ -172,15 +291,13 @@ function createDataFlightConfig(entry) {
         return null
     }
 
-    return {
+    return assignRandomPlane({
         controlPoints,
         segmentCount: params.segmentCount,
         curveColor: createGradientColorConfig(departure),
         paneCount: 1,
         paneSize: params.planeSize,
         elevationOffset: params.elevationOffset,
-        paneTextureIndex: Math.floor(Math.random() * PLANE_SVG_COUNT),
-        paneColor: params.planeColor,
         animationSpeed: params.animationSpeed,
         tiltMode: params.tiltMode,
         returnFlight: params.returnFlight,
@@ -188,7 +305,7 @@ function createDataFlightConfig(entry) {
             departure,
             arrival
         }
-    }
+    })
 }
 
 // Pre-generate flight configurations for stability
@@ -202,14 +319,17 @@ function preGenerateFlightConfigs() {
                 return
             }
 
-            const normalizedPoints = normalizeControlPoints(config.controlPoints)
+            const configWithPlane = ensurePlaneDefaults(config)
+            const normalizedPoints = normalizeControlPoints(configWithPlane.controlPoints)
 
             preGeneratedConfigs.push({
-                ...config,
+                ...configWithPlane,
                 controlPoints: normalizedPoints,
-                elevationOffset: config.elevationOffset !== undefined ? config.elevationOffset : params.elevationOffset,
-                paneTextureIndex: config.paneTextureIndex !== undefined ? config.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
-                _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
+                elevationOffset: configWithPlane.elevationOffset !== undefined ? configWithPlane.elevationOffset : params.elevationOffset,
+                paneTextureIndex: configWithPlane.paneTextureIndex,
+                paneColor: configWithPlane.paneColor,
+                planeInfo: configWithPlane.planeInfo,
+                _randomSpeed: typeof configWithPlane.animationSpeed === 'number' ? configWithPlane.animationSpeed : undefined,
                 returnFlight: params.returnFlight
             })
         })
@@ -218,19 +338,24 @@ function preGenerateFlightConfigs() {
     }
 
     for (let i = 0; i < MAX_FLIGHTS; i++) {
-        const config = FlightUtils.generateRandomFlightConfig({
+        let config = FlightUtils.generateRandomFlightConfig({
             segmentCount: params.segmentCount,
             tiltMode: params.tiltMode,
             numControlPoints: 2
         })
-        config.elevationOffset = params.elevationOffset
-        config.paneTextureIndex = Math.floor(Math.random() * PLANE_SVG_COUNT)
+        config = assignRandomPlane({
+            ...config,
+            elevationOffset: params.elevationOffset,
+            flightData: null
+        })
         const normalizedPoints = normalizeControlPoints(config.controlPoints)
         preGeneratedConfigs.push({
             ...config,
             controlPoints: normalizedPoints,
             elevationOffset: config.elevationOffset,
             paneTextureIndex: config.paneTextureIndex,
+            paneColor: config.paneColor,
+            planeInfo: config.planeInfo,
             _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
             returnFlight: params.returnFlight,
             flightData: null
@@ -419,8 +544,13 @@ function normalizeControlPoints(points) {
 }
 
 function resolvePaneColor(config = {}) {
-    config.paneColor = params.planeColor
-    return config.paneColor
+    if (typeof config.paneColor === 'number') {
+        return config.paneColor
+    }
+
+    const color = parseHexColor(params.planeColor, DEFAULT_PLANE_COLOR)
+    config.paneColor = color
+    return color
 }
 
 function applyPaneColorMode() {
@@ -625,7 +755,6 @@ function loadSvgTexture() {
         return svgTexturePromise
     }
 
-    const svgIndices = Array.from({ length: PLANE_SVG_COUNT }, (_, idx) => idx + 1)
     svgTexturePromise = (async () => {
         try {
             const parser = new DOMParser()
@@ -635,11 +764,14 @@ function loadSvgTexture() {
 
             const rasterizedImages = []
 
-            for (const index of svgIndices) {
-                const url = `${import.meta.env.BASE_URL || '/'}plane${index}.svg`
+            for (const plane of planeEntries) {
+                const svgPath = typeof plane.svg === 'string' && plane.svg.length > 0
+                    ? plane.svg
+                    : `plane${(plane.atlasIndex ?? 0) + 1}.svg`
+                const url = `${import.meta.env.BASE_URL || '/'}${svgPath}`
                 const response = await fetch(url)
                 if (!response.ok) {
-                    throw new Error(`Failed to fetch SVG (${index}): ${response.status} ${response.statusText}`)
+                    throw new Error(`Failed to fetch SVG (${svgPath}): ${response.status} ${response.statusText}`)
                 }
                 const svgText = await response.text()
                 const doc = parser.parseFromString(svgText, 'image/svg+xml')
@@ -817,8 +949,17 @@ function initializeFlights() {
     }
 
     for (let i = 0; i < desiredCount; i++) {
-        const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
-        baseConfig.returnFlight = params.returnFlight
+        let baseConfig
+        if (preGeneratedConfigs.length) {
+            const configIndex = i % preGeneratedConfigs.length
+            baseConfig = ensurePlaneDefaults(preGeneratedConfigs[configIndex])
+            baseConfig.returnFlight = params.returnFlight
+            preGeneratedConfigs[configIndex] = baseConfig
+        } else {
+            baseConfig = assignRandomPlane(FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 }))
+            baseConfig.returnFlight = params.returnFlight
+        }
+
         const flightConfig = {
             ...baseConfig,
             controlPoints: cloneControlPoints(baseConfig.controlPoints),
@@ -828,7 +969,7 @@ function initializeFlights() {
             paneColor: resolvePaneColor(baseConfig),
             animationSpeed: resolveAnimationSpeed(baseConfig),
             elevationOffset: baseConfig.elevationOffset !== undefined ? baseConfig.elevationOffset : params.elevationOffset,
-            paneTextureIndex: baseConfig.paneTextureIndex !== undefined ? baseConfig.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
+            paneTextureIndex: baseConfig.paneTextureIndex,
             returnFlight: params.returnFlight
         }
         const flight = createFlightFromConfig(flightConfig, i)
@@ -853,8 +994,16 @@ function updateFlightCount(count) {
         // Add new flights (starting from the beginning)
         if (targetCount > 1) {
             for (let i = oldCount; i < targetCount; i++) {
-                const baseConfig = preGeneratedConfigs[i % preGeneratedConfigs.length] || FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
-                baseConfig.returnFlight = params.returnFlight
+                let baseConfig
+                if (preGeneratedConfigs.length) {
+                    const configIndex = i % preGeneratedConfigs.length
+                    baseConfig = ensurePlaneDefaults(preGeneratedConfigs[configIndex])
+                    baseConfig.returnFlight = params.returnFlight
+                    preGeneratedConfigs[configIndex] = baseConfig
+                } else {
+                    baseConfig = assignRandomPlane(FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 }))
+                    baseConfig.returnFlight = params.returnFlight
+                }
                 const flightConfig = {
                     ...baseConfig,
                     controlPoints: cloneControlPoints(baseConfig.controlPoints),
@@ -864,7 +1013,7 @@ function updateFlightCount(count) {
                     paneColor: resolvePaneColor(baseConfig),
                     animationSpeed: resolveAnimationSpeed(baseConfig),
                     elevationOffset: baseConfig.elevationOffset !== undefined ? baseConfig.elevationOffset : params.elevationOffset,
-                            paneTextureIndex: baseConfig.paneTextureIndex !== undefined ? baseConfig.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
+                    paneTextureIndex: baseConfig.paneTextureIndex,
                     returnFlight: params.returnFlight
                 }
                 const flight = createFlightFromConfig(flightConfig, i)
@@ -916,8 +1065,16 @@ function updatePlaneElevation(value) {
 // Function to update path elevation offset
 // Function to update plane color
 function updatePlaneColor(color) {
-    params.planeColor = color
-    applyPaneColorMode()
+    const normalizedColor = parseHexColor(color, DEFAULT_PLANE_COLOR)
+    params.planeColor = normalizedColor
+
+    preGeneratedConfigs = preGeneratedConfigs.map((config, index) => {
+        const updatedConfig = { ...config, paneColor: normalizedColor }
+        if (index < flights.length) {
+            flights[index].setPaneColor(normalizedColor)
+        }
+        return updatedConfig
+    })
 }
 
 function updateDashPattern() {
@@ -945,16 +1102,19 @@ function randomizeAllFlightCurves() {
         const normalizedPoints = normalizeControlPoints(randomConfig.controlPoints)
 
         const existingConfig = preGeneratedConfigs[index] || {}
-        const updatedConfig = {
+        let updatedConfig = {
             ...existingConfig,
             ...randomConfig,
             controlPoints: normalizedPoints,
             segmentCount: params.segmentCount,
             curveColor: randomConfig.curveColor,
             elevationOffset: existingConfig.elevationOffset !== undefined ? existingConfig.elevationOffset : params.elevationOffset,
-            paneTextureIndex: Math.floor(Math.random() * PLANE_SVG_COUNT),
-            flightData: existingConfig.flightData ?? null
+            flightData: existingConfig.flightData ?? null,
+            planeInfo: null,
+            paneTextureIndex: undefined,
+            paneColor: undefined
         }
+        updatedConfig = assignRandomPlane(updatedConfig)
         updatedConfig._randomSpeed = params.randomSpeed ? randomConfig.animationSpeed : undefined
         updatedConfig.returnFlight = params.returnFlight
         preGeneratedConfigs[index] = updatedConfig
