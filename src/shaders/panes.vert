@@ -6,6 +6,7 @@ attribute vec4 controlPointsPack3; // (p2.z, p3.x, p3.y, p3.z)
 // Per-instance rendering attributes
 attribute vec3 instanceColor;
 attribute float instanceScale;
+attribute float instanceElevation;
 attribute vec4 animationParams; // (phase, speed, tiltMode, visible)
 
 // Uniforms
@@ -200,6 +201,7 @@ void main() {
     // Default up vector
     vec3 up = vec3(0.0, 1.0, 0.0);
     vec3 surfaceNormal = normalize(curvePosition);
+    curvePosition += surfaceNormal * instanceElevation;
 
     // Create orientation matrix
     mat4 rotationMatrix = createOrientationMatrix(tangent, up, tiltMode, surfaceNormal);

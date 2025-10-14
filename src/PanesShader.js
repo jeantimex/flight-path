@@ -28,7 +28,10 @@ export class PanesShader {
         // Per-instance colors and metadata
         this.instanceColors = new Float32Array(this.maxPanes * 3) // RGB per instance
         this.instanceScales = new Float32Array(this.maxPanes) // Scale multiplier per instance
+        this.instanceElevations = new Float32Array(this.maxPanes) // Elevation offset per instance
         this.animationParams = new Float32Array(this.maxPanes * 4) // (phase, speed, tiltMode, visible)
+
+        this.defaultElevation = options.baseElevation !== undefined ? options.baseElevation : 0
 
         // Tracking
         this.activePanes = 0
@@ -67,6 +70,10 @@ export class PanesShader {
             new THREE.InstancedBufferAttribute(this.instanceScales, 1)
         )
         this.geometry.setAttribute(
+            'instanceElevation',
+            new THREE.InstancedBufferAttribute(this.instanceElevations, 1)
+        )
+        this.geometry.setAttribute(
             'animationParams',
             new THREE.InstancedBufferAttribute(this.animationParams, 4)
         )
@@ -102,6 +109,7 @@ export class PanesShader {
 
             // Initialize scale to 0 (hidden)
             this.instanceScales[i] = 0.0
+            this.instanceElevations[i] = this.defaultElevation
 
             // Initialize animation params (phase, speed, tiltMode, visible)
             this.animationParams[i * 4] = Math.random() // phase
@@ -209,6 +217,18 @@ export class PanesShader {
         this.instanceScales[index] = normalizedScale
 
         this.geometry.attributes.instanceScale.needsUpdate = true
+    }
+
+    /**
+     * Set elevation offset (distance above curve) for a pane
+     */
+    setElevationOffset(index, offset) {
+        if (index < 0 || index >= this.maxPanes) return
+
+        this.instanceElevations[index] = offset
+        if (this.geometry && this.geometry.attributes.instanceElevation) {
+            this.geometry.attributes.instanceElevation.needsUpdate = true
+        }
     }
 
     /**
@@ -348,6 +368,9 @@ export class PanesShader {
         }
         if (this.geometry.attributes.instanceScale) {
             this.geometry.attributes.instanceScale.needsUpdate = true
+        }
+        if (this.geometry.attributes.instanceElevation) {
+            this.geometry.attributes.instanceElevation.needsUpdate = true
         }
         if (this.geometry.attributes.animationParams) {
             this.geometry.attributes.animationParams.needsUpdate = true

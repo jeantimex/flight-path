@@ -26,7 +26,8 @@ export class Flight {
         this.paneOptions = {
             count: options.paneCount || 1,
             paneSize: options.paneSize || 100,
-            color: options.paneColor || 0xff6666
+            color: options.paneColor || 0xff6666,
+            elevationOffset: options.elevationOffset !== undefined ? options.elevationOffset : 0
         }
 
         // Animation options
@@ -70,12 +71,18 @@ export class Flight {
                 this.mergedPanes.setCurveControlPoints(this.paneIndex, fourPoints)
                 this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
                 this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+                if (typeof this.mergedPanes.setElevationOffset === 'function') {
+                    this.mergedPanes.setElevationOffset(this.paneIndex, this.paneOptions.elevationOffset)
+                }
                 this.mergedPanes.setAnimationSpeed(this.paneIndex, this.animationSpeed)
                 this.mergedPanes.setTiltMode(this.paneIndex, this.tiltMode)
             } else {
                 // CPU-based panes: Just set initial color and size
                 this.mergedPanes.setPaneColor(this.paneIndex, this.paneOptions.color)
                 this.mergedPanes.setPaneSize(this.paneIndex, this.paneOptions.paneSize)
+                if (typeof this.mergedPanes.setElevationOffset === 'function') {
+                    this.mergedPanes.setElevationOffset(this.paneIndex, this.paneOptions.elevationOffset)
+                }
             }
         }
 
@@ -182,6 +189,16 @@ export class Flight {
         this.paneOptions.paneSize = size
         if (this.mergedPanes && this.paneIndex >= 0) {
             this.mergedPanes.setPaneSize(this.paneIndex, size)
+        }
+    }
+
+    /**
+     * Set pane elevation offset above the curve
+     */
+    setPaneElevation(offset) {
+        this.paneOptions.elevationOffset = offset
+        if (this.mergedPanes && this.paneIndex >= 0 && typeof this.mergedPanes.setElevationOffset === 'function') {
+            this.mergedPanes.setElevationOffset(this.paneIndex, offset)
         }
     }
 
