@@ -37,6 +37,7 @@ export class PanesShader {
         // Tracking
         this.activePanes = 0
         this.atlasInfo = null
+        this.planesVisible = true
 
         this.initialize()
     }
@@ -91,7 +92,8 @@ export class PanesShader {
                 baseSize: { value: this.baseSize },
                 paneMap: { value: null },
                 useTexture: { value: 0.0 },
-                returnMode: { value: this.returnModeEnabled ? 1.0 : 0.0 }
+                returnMode: { value: this.returnModeEnabled ? 1.0 : 0.0 },
+                paneVisibility: { value: 1.0 }
             },
             vertexShader,
             fragmentShader,
@@ -310,6 +312,13 @@ export class PanesShader {
      */
     setActivePaneCount(count) {
         this.activePanes = Math.min(count, this.maxPanes)
+    }
+
+    setPlanesVisible(visible) {
+        this.planesVisible = !!visible
+        if (this.material && this.material.uniforms && this.material.uniforms.paneVisibility) {
+            this.material.uniforms.paneVisibility.value = this.planesVisible ? 1.0 : 0.0
+        }
     }
 
     /**

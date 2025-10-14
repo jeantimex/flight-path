@@ -71,6 +71,7 @@ const params = {
     dashSize: 40,
     gapSize: 40,
     hidePath: false,
+    hidePlane: false,
     randomPaneColor: false,
     randomSpeed: false,
     returnFlight: false
@@ -361,6 +362,7 @@ gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Plane Style').onChange(updat
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
+gui.add(params, 'hidePlane').name('Hide Plane').onChange(updatePlaneVisibility)
 gui.add(params, 'randomPaneColor').name('Random Color').onChange(() => {
     applyPaneColorMode()
 })
@@ -412,6 +414,15 @@ function updatePathVisibility() {
     if (!mergedCurves) return
     const visibleCount = params.hidePath ? 0 : flights.length
     mergedCurves.setVisibleCurveCount(visibleCount)
+}
+
+function updatePlaneVisibility() {
+    if (!mergedPanes) return
+    const visibleCount = params.hidePlane ? 0 : flights.length
+    mergedPanes.setActivePaneCount(visibleCount)
+    if (typeof mergedPanes.setPlanesVisible === 'function') {
+        mergedPanes.setPlanesVisible(!params.hidePlane)
+    }
 }
 
 function generateRandomSpeed() {
@@ -805,7 +816,7 @@ function initializeFlights() {
 
     // Update visible counts in merged renderers
     updatePathVisibility()
-    mergedPanes.setActivePaneCount(flights.length)
+    updatePlaneVisibility()
 
     applyReturnMode()
 }
@@ -851,9 +862,7 @@ function updateFlightCount(count) {
 
     // Update visible counts in merged renderers
     updatePathVisibility()
-    if (mergedPanes) {
-        mergedPanes.setActivePaneCount(flights.length)
-    }
+    updatePlaneVisibility()
 }
 
 // Function to update segment count

@@ -14,6 +14,7 @@ attribute vec4 animationParams; // (phase, speed, tiltMode, visible)
 uniform float time;
 uniform float baseSize;
 uniform float returnMode;
+uniform float paneVisibility;
 
 // Varyings
 varying vec3 vColor;
@@ -171,8 +172,8 @@ void main() {
     float tiltMode = animationParams.z;
     float visible = animationParams.w;
 
-    // Hide if not visible
-    if (visible < 0.5) {
+    // Hide if not visible (either per-instance or global)
+    if (visible < 0.5 || paneVisibility < 0.5) {
         gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
