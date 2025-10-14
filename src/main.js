@@ -336,11 +336,11 @@ function updateCoordinateDisplay() {
 
 // Setup dat.GUI
 const gui = new dat.GUI()
-gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Number of Flights').onChange(updateFlightCount)
+gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
 gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
-gui.add(params, 'animationSpeed', 0.01, 0.5).name('Animation Speed').onChange(() => {
+gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
     applyAnimationSpeedMode()
 })
 gui.add(params, 'elevationOffset', 0, 200).name('Plane Elevation').onChange((value) => {
@@ -353,10 +353,10 @@ gui.add(params, 'elevationOffset', 0, 200).name('Plane Elevation').onChange((val
         mergedPanes.markAllAttributesNeedUpdate()
     }
 })
-gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Pane Style').onChange(updatePaneStyle)
+gui.add(params, 'paneStyle', ['Pane', 'SVG']).name('Plane Style').onChange(updatePaneStyle)
 gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
-gui.add(params, 'randomPaneColor').name('Random Pane Color').onChange(() => {
+gui.add(params, 'randomPaneColor').name('Random Color').onChange(() => {
     applyPaneColorMode()
 })
 gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
