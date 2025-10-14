@@ -83,8 +83,6 @@ export class Controls {
       this.guiControls.returnFlight = !!options.returnFlight;
     }
 
-    this.setupLightingControls();
-    this.setupBrightnessControls();
     this.setupFlightControls({
       flightCountRange: options.flightCountRange || {}
     });
@@ -98,11 +96,14 @@ export class Controls {
       elevationRange: options.elevationRange || {},
       paneStyleOptions: options.paneStyleOptions || ['Pane', 'SVG']
     });
+    this.setupEarthControls();
+    this.setupBrightnessControls();
   }
 
-  setupLightingControls() {
-    const lightingFolder = this.gui.addFolder("Lighting Controls");
-    lightingFolder
+  setupEarthControls() {
+    const earthFolder = this.gui.addFolder("Earth Controls");
+
+    earthFolder
       .add(this.guiControls, "dayNightEffect")
       .name("Day/Night Effect")
       .onChange((value) => {
@@ -111,7 +112,7 @@ export class Controls {
         }
       });
 
-    lightingFolder
+    earthFolder
       .add(this.guiControls, "atmosphereEffect")
       .name("Atmosphere Effect")
       .onChange((value) => {
@@ -120,7 +121,7 @@ export class Controls {
         }
       });
 
-    this.controllers.realTimeSun = lightingFolder
+    this.controllers.realTimeSun = earthFolder
       .add(this.guiControls, "realTimeSun")
       .name("Real-time Sun")
       .onChange((value) => {
@@ -143,7 +144,7 @@ export class Controls {
         }
       });
 
-    this.controllers.timeDisplay = lightingFolder
+    this.controllers.timeDisplay = earthFolder
       .add(this.guiControls, "timeDisplay")
       .name("Time (UTC)")
       .onChange((value) => {
@@ -172,7 +173,7 @@ export class Controls {
       this.controllers.timeDisplay.__input.style.color = '#cccccc';
     }
 
-    this.controllers.timeSlider = lightingFolder
+    this.controllers.timeSlider = earthFolder
       .add(this.guiControls, "simulatedTime", 0, 24, 0.1)
       .name("Time Slider")
       .onChange((value) => {
@@ -189,7 +190,7 @@ export class Controls {
         }
       });
 
-    lightingFolder.open();
+    earthFolder.open();
   }
 
   setupBrightnessControls() {
