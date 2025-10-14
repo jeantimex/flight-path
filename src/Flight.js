@@ -223,11 +223,15 @@ export class Flight {
     /**
      * Set animation speed
      */
-    setAnimationSpeed(speed) {
+    setAnimationSpeed(speed, options = {}) {
         this.animationSpeedTarget = speed
 
         if (this._isShaderBasedPanes && this.mergedPanes && this.paneIndex >= 0) {
             this.mergedPanes.setAnimationSpeed(this.paneIndex, speed)
+        }
+
+        if (options.immediate) {
+            this.animationSpeed = speed
         }
     }
 

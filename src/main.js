@@ -894,7 +894,10 @@ function createFlightFromConfig(config, flightIndex) {
     }
 
     // Set initial animation speed and tilt mode
-    flight.setAnimationSpeed(flightConfig.animationSpeed !== undefined ? flightConfig.animationSpeed : params.animationSpeed)
+    flight.setAnimationSpeed(
+        flightConfig.animationSpeed !== undefined ? flightConfig.animationSpeed : params.animationSpeed,
+        { immediate: true }
+    )
     flight.setTiltMode(params.tiltMode)
     if (flightConfig.elevationOffset !== undefined) {
         flight.setPaneElevation(flightConfig.elevationOffset)

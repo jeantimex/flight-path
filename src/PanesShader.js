@@ -260,13 +260,23 @@ export class PanesShader {
             ? this.material.uniforms.time.value
             : 0
 
-        let currentProgress = timeUniform * oldSpeed + oldPhase
-        currentProgress = currentProgress - Math.floor(currentProgress)
+        const period = this.returnModeEnabled ? 2 : 1
+        const wrapToPeriod = (value) => {
+            if (period <= 0) {
+                return 0
+            }
+            let result = value % period
+            if (result < 0) {
+                result += period
+            }
+            return result
+        }
+
+        const currentProgress = wrapToPeriod(timeUniform * oldSpeed + oldPhase)
 
         this.animationParams[baseIndex + 1] = speed
 
-        let newPhase = currentProgress - timeUniform * speed
-        newPhase = newPhase - Math.floor(newPhase)
+        const newPhase = wrapToPeriod(currentProgress - timeUniform * speed)
         this.animationParams[baseIndex] = newPhase
 
         this.geometry.attributes.animationParams.needsUpdate = true
