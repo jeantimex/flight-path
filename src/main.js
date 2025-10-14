@@ -72,7 +72,6 @@ const params = {
     gapSize: 40,
     hidePath: false,
     hidePlane: false,
-    randomPaneColor: false,
     randomSpeed: false,
     returnFlight: false
 }
@@ -210,7 +209,6 @@ function preGenerateFlightConfigs() {
                 controlPoints: normalizedPoints,
                 elevationOffset: config.elevationOffset !== undefined ? config.elevationOffset : params.elevationOffset,
                 paneTextureIndex: config.paneTextureIndex !== undefined ? config.paneTextureIndex : Math.floor(Math.random() * PLANE_SVG_COUNT),
-                _randomPaneColor: false,
                 _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
                 returnFlight: params.returnFlight
             })
@@ -233,7 +231,6 @@ function preGenerateFlightConfigs() {
             controlPoints: normalizedPoints,
             elevationOffset: config.elevationOffset,
             paneTextureIndex: config.paneTextureIndex,
-            _randomPaneColor: false,
             _randomSpeed: typeof config.animationSpeed === 'number' ? config.animationSpeed : undefined,
             returnFlight: params.returnFlight,
             flightData: null
@@ -399,9 +396,6 @@ gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPatt
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
 gui.add(params, 'hidePlane').name('Hide Plane').onChange(updatePlaneVisibility)
-gui.add(params, 'randomPaneColor').name('Random Color').onChange(() => {
-    applyPaneColorMode()
-})
 gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
     applyAnimationSpeedMode()
 })
@@ -425,15 +419,6 @@ function normalizeControlPoints(points) {
 }
 
 function resolvePaneColor(config = {}) {
-    if (params.randomPaneColor) {
-        if (!config._randomPaneColor) {
-            config.paneColor = FlightUtils.generateRandomColor()
-            config._randomPaneColor = true
-        }
-        return config.paneColor
-    }
-
-    config._randomPaneColor = false
     config.paneColor = params.planeColor
     return config.paneColor
 }
@@ -932,11 +917,6 @@ function updatePlaneElevation(value) {
 // Function to update plane color
 function updatePlaneColor(color) {
     params.planeColor = color
-
-    if (params.randomPaneColor) {
-        return
-    }
-
     applyPaneColorMode()
 }
 
@@ -975,7 +955,6 @@ function randomizeAllFlightCurves() {
             paneTextureIndex: Math.floor(Math.random() * PLANE_SVG_COUNT),
             flightData: existingConfig.flightData ?? null
         }
-        updatedConfig._randomPaneColor = params.randomPaneColor
         updatedConfig._randomSpeed = params.randomSpeed ? randomConfig.animationSpeed : undefined
         updatedConfig.returnFlight = params.returnFlight
         preGeneratedConfigs[index] = updatedConfig
