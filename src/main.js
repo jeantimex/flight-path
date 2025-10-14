@@ -510,7 +510,6 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'dashSize', 0, 2000).name('Dash Length').onChange(updateDashPattern)
 gui.add(params, 'gapSize', 0, 2000).name('Dash Gap').onChange(updateDashPattern)
 gui.add(params, 'hidePath').name('Hide Path').onChange(updatePathVisibility)
 // gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
@@ -697,6 +696,9 @@ function setupGlobalControls() {
         },
         onHidePlaneChange: (value) => {
             setHidePlane(value)
+        },
+        onDashSizeChange: (value) => {
+            updateDashSize(value)
         }
     }, {
         planeSize: params.planeSize,
@@ -708,7 +710,9 @@ function setupGlobalControls() {
         elevationRange: { min: 0, max: 200, step: 5 },
         paneStyle: params.paneStyle,
         paneStyleOptions: ['Pane', 'SVG'],
-        hidePlane: params.hidePlane
+        hidePlane: params.hidePlane,
+        dashSize: params.dashSize,
+        dashRange: { min: 0, max: 2000, step: 1 }
     })
 
     guiControls = controlsManager.getControls()
@@ -1170,6 +1174,17 @@ function updateDashPattern() {
     if (mergedCurves) {
         mergedCurves.setDashPattern(params.dashSize, params.gapSize)
         mergedCurves.applyUpdates()
+    }
+}
+
+function updateDashSize(size) {
+    params.dashSize = size
+    updateDashPattern()
+
+    if (controlsManager && typeof controlsManager.setDashSize === 'function') {
+        if (controlsManager.guiControls?.dashSize !== size) {
+            controlsManager.setDashSize(size)
+        }
     }
 }
 

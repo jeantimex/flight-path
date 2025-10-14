@@ -22,6 +22,7 @@ export class Controls {
       elevationOffset: 15,
       paneStyle: 'SVG',
       hidePlane: false,
+      dashSize: 40,
     };
     this.callbacks = {};
   }
@@ -58,8 +59,15 @@ export class Controls {
       this.guiControls.hidePlane = !!options.hidePlane;
     }
 
+    if (options.dashSize !== undefined) {
+      this.guiControls.dashSize = options.dashSize;
+    }
+
     this.setupLightingControls();
     this.setupBrightnessControls();
+    this.setupFlightPathControls({
+      dashRange: options.dashRange || {}
+    });
     this.setupPlaneControls({
       sizeRange: options.planeSizeRange || {},
       speedRange: options.speedRange || {},
@@ -181,6 +189,29 @@ export class Controls {
       });
 
     brightnessFolder.open();
+  }
+
+  setupFlightPathControls(config = {}) {
+    const dashRange = config.dashRange || {};
+    const dashMin = dashRange.min !== undefined ? dashRange.min : 0;
+    const dashMax = dashRange.max !== undefined ? dashRange.max : 2000;
+    const dashStep = dashRange.step !== undefined ? dashRange.step : 1;
+
+    const flightPathFolder = this.gui.addFolder("Flight Path");
+
+    this.controllers.dashSize = flightPathFolder
+      .add(this.guiControls, "dashSize", dashMin, dashMax)
+      .name("Dash Length")
+      .onChange((value) => {
+        if (this.callbacks.onDashSizeChange) {
+          this.callbacks.onDashSizeChange(value);
+        }
+      });
+    if (typeof this.controllers.dashSize.step === "function") {
+      this.controllers.dashSize.step(dashStep);
+    }
+
+    flightPathFolder.open();
   }
 
   setupPlaneControls(config = {}) {
@@ -325,6 +356,16 @@ export class Controls {
     this.guiControls.hidePlane = boolValue;
     if (this.controllers.hidePlane) {
       this.controllers.hidePlane.updateDisplay();
+    }
+  }
+
+  setDashSize(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+    this.guiControls.dashSize = value;
+    if (this.controllers.dashSize) {
+      this.controllers.dashSize.updateDisplay();
     }
   }
 
