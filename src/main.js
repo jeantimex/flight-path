@@ -510,7 +510,6 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 // gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
     applyAnimationSpeedMode()
@@ -658,7 +657,13 @@ function setupGlobalControls() {
         },
         onTimeDisplayChange: (value) => {
             guiControls.timeDisplay = value
+        },
+        onPlaneSizeChange: (value) => {
+            updatePlaneSize(value)
         }
+    }, {
+        planeSize: params.planeSize,
+        planeSizeRange: { min: 50, max: 500 }
     })
 
     guiControls = controlsManager.getControls()
@@ -1049,7 +1054,15 @@ function updateSegmentCount(count) {
 
 // Function to update plane size
 function updatePlaneSize(size) {
+    params.planeSize = size
     flights.forEach(flight => flight.setPaneSize(size))
+    preGeneratedConfigs = preGeneratedConfigs.map(config => ({
+        ...config,
+        paneSize: size
+    }))
+    if (controlsManager && typeof controlsManager.setPlaneSize === 'function') {
+        controlsManager.setPlaneSize(size)
+    }
     // Updates will be applied in animation loop via applyUpdates()
 }
 

@@ -16,6 +16,7 @@ export class Controls {
       timeDisplay: hoursToTimeString(getCurrentUtcTimeHours()),
       nightBrightness: 0.8,
       dayBrightness: 2.0,
+      planeSize: 100,
     };
     this.callbacks = {};
   }
@@ -24,12 +25,17 @@ export class Controls {
    * Initialize the GUI controls
    * @param {Object} callbacks - Object containing callback functions for different controls
    */
-  setup(callbacks = {}) {
+  setup(callbacks = {}, options = {}) {
     this.callbacks = callbacks;
     this.gui = new GUI();
 
+    if (options.planeSize !== undefined) {
+      this.guiControls.planeSize = options.planeSize;
+    }
+
     this.setupLightingControls();
     this.setupBrightnessControls();
+    this.setupPlaneControls(options.planeSizeRange || {});
   }
 
   setupLightingControls() {
@@ -147,6 +153,33 @@ export class Controls {
     brightnessFolder.open();
   }
 
+  setupPlaneControls(range = {}) {
+    const min = range.min !== undefined ? range.min : 50;
+    const max = range.max !== undefined ? range.max : 500;
+    const step = range.step !== undefined ? range.step : 1;
+
+    const planeFolder = this.gui.addFolder("Plane Controls");
+    this.controllers.planeSize = planeFolder
+      .add(this.guiControls, "planeSize", min, max, step)
+      .name("Plane Size")
+      .onChange((value) => {
+        if (this.callbacks.onPlaneSizeChange) {
+          this.callbacks.onPlaneSizeChange(value);
+        }
+      });
+  }
+
+  setPlaneSize(value) {
+    if (typeof value !== "number") {
+      return;
+    }
+
+    this.guiControls.planeSize = value;
+    if (this.controllers.planeSize) {
+      this.controllers.planeSize.updateDisplay();
+    }
+  }
+
   /**
    * Update time display for real-time mode
    * Note: This is now handled directly in main.js updateSunPosition()
@@ -172,5 +205,6 @@ export class Controls {
       this.gui.destroy();
       this.gui = null;
     }
+    this.controllers = {};
   }
 }
