@@ -338,7 +338,7 @@ function updateCoordinateDisplay() {
 const gui = new dat.GUI()
 gui.add(params, 'numFlights', 1, MAX_FLIGHTS).step(1).name('Flight Count').onChange(updateFlightCount)
 gui.add(params, 'segmentCount', 50, 500).step(50).name('Segments').onChange(updateSegmentCount)
-gui.add(params, 'planeSize', 50, 500).name('Plane Size').onChange(updatePlaneSize)
+gui.add(params, 'planeSize', 20, 200).name('Plane Size').onChange(updatePlaneSize)
 gui.addColor(params, 'planeColor').name('Plane Color').onChange(updatePlaneColor)
 gui.add(params, 'animationSpeed', 0.01, 0.5).name('Fly Speed').onChange(() => {
     applyAnimationSpeedMode()
