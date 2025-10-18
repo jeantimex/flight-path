@@ -122,6 +122,23 @@ function parseHexColor(colorValue: any, fallback: number = DEFAULT_PLANE_COLOR):
     return fallback
 }
 
+function clampPercentValue(value: any, fallbackPercent: number): number {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) {
+        return fallbackPercent
+    }
+    return THREE.MathUtils.clamp(numeric, 0, 100)
+}
+
+function resolveDayIntensityFromPercent(percentValue: any, fallbackPercent: number = DEFAULT_DAY_BRIGHTNESS_PERCENT): number {
+    const percent = clampPercentValue(percentValue, fallbackPercent) / 100
+    return THREE.MathUtils.lerp(0.1, 3.0, percent)
+}
+
+function resolveNightMixFromPercent(percentValue: any, fallbackPercent: number = DEFAULT_NIGHT_BRIGHTNESS_PERCENT): number {
+    return clampPercentValue(percentValue, fallbackPercent) / 100
+}
+
 const planeEntries: PlaneEntry[] = Array.isArray(planeDefinitions) && planeDefinitions.length > 0
     ? planeDefinitions.map((plane: any, index: number) => ({
         ...plane,
@@ -151,6 +168,9 @@ let guiControls: any = null
 let baseAmbientColor: THREE.Color | null = null
 let baseAmbientIntensity: number = 0
 let baseDirectionalIntensity: number = 0
+const TARGET_AMBIENT_COLOR = new THREE.Color(0xffffff)
+const DEFAULT_DAY_BRIGHTNESS_PERCENT = 70
+const DEFAULT_NIGHT_BRIGHTNESS_PERCENT = 40
 
 // GUI controls
 const params: GuiParams = {
@@ -707,7 +727,6 @@ function toggleDayNightEffect(enabled: boolean): void {
         if (baseDirectionalIntensity > 0) {
             directionalLight.intensity = baseDirectionalIntensity
         }
-        updateLighting()
     } else {
         if (!baseAmbientColor) {
             baseAmbientColor = ambientLight.color.clone()
@@ -720,20 +739,33 @@ function toggleDayNightEffect(enabled: boolean): void {
         }
 
         directionalLight.visible = false
-        ambientLight.color.set(0xffffff)
-        const fallbackIntensity = guiControls
-            ? Math.max(guiControls.dayBrightness, guiControls.nightBrightness)
-            : 1.6
-        ambientLight.intensity = Math.max(fallbackIntensity, 1.6)
+        directionalLight.intensity = 0
     }
+    updateLighting()
 }
 
 function updateLighting(): void {
     if (!guiControls) return
-    if (guiControls.dayNightEffect) {
-        directionalLight.intensity = guiControls.dayBrightness
-        ambientLight.intensity = guiControls.nightBrightness
+
+    if (!guiControls.dayNightEffect) {
+        ambientLight.color.copy(TARGET_AMBIENT_COLOR)
+        ambientLight.intensity = 1.6
+        return
     }
+
+    const dayIntensity = resolveDayIntensityFromPercent(guiControls.dayBrightness)
+    const nightMix = resolveNightMixFromPercent(guiControls.nightBrightness)
+
+    directionalLight.intensity = dayIntensity
+
+    const baseIntensity = baseAmbientIntensity > 0 ? baseAmbientIntensity : ambientLight.intensity
+    const baseColor = baseAmbientColor ? baseAmbientColor.clone() : ambientLight.color.clone()
+    const targetAmbient = THREE.MathUtils.lerp(baseIntensity, dayIntensity * 0.95, nightMix)
+    const colorBlend = THREE.MathUtils.clamp(nightMix * 0.85, 0, 1)
+
+    const blendedColor = baseColor.lerp(TARGET_AMBIENT_COLOR, colorBlend)
+    ambientLight.color.copy(blendedColor)
+    ambientLight.intensity = targetAmbient
 }
 
 function setupGlobalControls(): void {

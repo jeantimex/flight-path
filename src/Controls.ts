@@ -157,8 +157,8 @@ export class Controls {
       realTimeSun: true,
       simulatedTime: getCurrentUtcTimeHours(),
       timeDisplay: hoursToTimeString(getCurrentUtcTimeHours()),
-      nightBrightness: 0.8,
-      dayBrightness: 2.0,
+      nightBrightness: 15,
+      dayBrightness: 80,
       planeSize: 100,
       planeColor: '#ff6666',
       animationSpeed: 0.1,
@@ -355,7 +355,7 @@ export class Controls {
 
     const brightnessFolder: GUIFolder = this.gui.addFolder("Brightness Controls");
     brightnessFolder
-      .add(this.guiControls, "dayBrightness", 0.0, 3.0, 0.1)
+      .add(this.guiControls, "dayBrightness", 0, 100, 1)
       .name("Day")
       .onChange((value: number) => {
         if (this.callbacks.onDayBrightnessChange) {
@@ -364,7 +364,7 @@ export class Controls {
       });
 
     brightnessFolder
-      .add(this.guiControls, "nightBrightness", 0.0, 2.0, 0.1)
+      .add(this.guiControls, "nightBrightness", 0, 100, 1)
       .name("Night")
       .onChange((value: number) => {
         if (this.callbacks.onNightBrightnessChange) {
