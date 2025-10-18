@@ -1,10 +1,24 @@
 import { GUI, GUIController } from "dat.gui";
-import { getCurrentUtcTimeHours, hoursToTimeString, timeStringToHours } from "./Utils.js";
+import {
+  getCurrentUtcTimeHours,
+  hoursToTimeString,
+  timeStringToHours,
+} from "./Utils.js";
 
 // Type definitions for dat.GUI
 interface GUIFolder {
-  add(object: any, property: string, min?: number, max?: number, step?: number): GUIController;
-  add(object: any, property: string, options?: string[] | { [key: string]: any }): GUIController;
+  add(
+    object: any,
+    property: string,
+    min?: number,
+    max?: number,
+    step?: number,
+  ): GUIController;
+  add(
+    object: any,
+    property: string,
+    options?: string[] | { [key: string]: any },
+  ): GUIController;
   addColor(object: any, property: string): GUIController;
   addFolder(name: string): GUIFolder;
   open(): GUIFolder;
@@ -163,10 +177,10 @@ export class Controls {
       nightBrightness: 15,
       dayBrightness: 80,
       planeSize: 100,
-      planeColor: '#ff6666',
+      planeColor: "#ff6666",
       animationSpeed: 0.1,
       elevationOffset: 15,
-      paneStyle: 'SVG',
+      paneStyle: "SVG",
       hidePlane: false,
       dashSize: 40,
       gapSize: 40,
@@ -181,7 +195,10 @@ export class Controls {
    * @param callbacks - Object containing callback functions for different controls
    * @param options - Configuration options for the controls
    */
-  public setup(callbacks: ControlsCallbacks = {}, options: ControlsOptions = {}): void {
+  public setup(
+    callbacks: ControlsCallbacks = {},
+    options: ControlsOptions = {},
+  ): void {
     this.callbacks = callbacks;
     this.gui = new GUI();
 
@@ -230,17 +247,17 @@ export class Controls {
     }
 
     this.setupFlightControls({
-      flightCountRange: options.flightCountRange || {}
+      flightCountRange: options.flightCountRange || {},
     });
     this.setupFlightPathControls({
       dashRange: options.dashRange || {},
-      gapRange: options.gapRange || {}
+      gapRange: options.gapRange || {},
     });
     this.setupPlaneControls({
       sizeRange: options.planeSizeRange || {},
       speedRange: options.speedRange || {},
       elevationRange: options.elevationRange || {},
-      paneStyleOptions: options.paneStyleOptions || ['Pane', 'SVG']
+      paneStyleOptions: options.paneStyleOptions || ["Pane", "SVG"],
     });
     this.setupEarthControls();
     this.setupBrightnessControls();
@@ -281,7 +298,9 @@ export class Controls {
         } else {
           // Update simulated time to current time when enabling real-time
           this.guiControls.simulatedTime = getCurrentUtcTimeHours();
-          this.guiControls.timeDisplay = hoursToTimeString(this.guiControls.simulatedTime);
+          this.guiControls.timeDisplay = hoursToTimeString(
+            this.guiControls.simulatedTime,
+          );
           // Refresh GUI controllers to show updated values
           if (this.controllers.timeDisplay) {
             this.controllers.timeDisplay.updateDisplay();
@@ -324,9 +343,9 @@ export class Controls {
     // Disable the time display input to make it read-only
     if (this.controllers.timeDisplay?.__input) {
       this.controllers.timeDisplay.__input.disabled = true;
-      this.controllers.timeDisplay.__input.style.cursor = 'default';
-      this.controllers.timeDisplay.__input.style.backgroundColor = '#2a2a2a';
-      this.controllers.timeDisplay.__input.style.color = '#cccccc';
+      this.controllers.timeDisplay.__input.style.cursor = "default";
+      this.controllers.timeDisplay.__input.style.backgroundColor = "#2a2a2a";
+      this.controllers.timeDisplay.__input.style.color = "#cccccc";
     }
 
     this.controllers.timeSlider = earthFolder
@@ -356,7 +375,9 @@ export class Controls {
   private setupBrightnessControls(): void {
     if (!this.gui) return;
 
-    const brightnessFolder: GUIFolder = this.gui.addFolder("Brightness Controls");
+    const brightnessFolder: GUIFolder = this.gui.addFolder(
+      "Brightness Controls",
+    );
     brightnessFolder
       .add(this.guiControls, "dayBrightness", 0, 100, 1)
       .name("Day")
@@ -382,11 +403,15 @@ export class Controls {
     if (!this.gui) return;
 
     const flightCountRange = config.flightCountRange || {};
-    const countMin = flightCountRange.min !== undefined ? flightCountRange.min : 1;
-    const countMax = flightCountRange.max !== undefined ? flightCountRange.max : 30000;
-    const countStep = flightCountRange.step !== undefined ? flightCountRange.step : 1;
+    const countMin =
+      flightCountRange.min !== undefined ? flightCountRange.min : 1;
+    const countMax =
+      flightCountRange.max !== undefined ? flightCountRange.max : 30000;
+    const countStep =
+      flightCountRange.step !== undefined ? flightCountRange.step : 1;
 
-    const flightControlsFolder: GUIFolder = this.gui.addFolder("Flight Controls");
+    const flightControlsFolder: GUIFolder =
+      this.gui.addFolder("Flight Controls");
 
     this.controllers.numFlights = flightControlsFolder
       .add(this.guiControls, "numFlights", countMin, countMax)
@@ -441,10 +466,7 @@ export class Controls {
         }
       });
     const dashSizeController = this.controllers.dashSize;
-    if (
-      dashSizeController &&
-      typeof dashSizeController.step === "function"
-    ) {
+    if (dashSizeController && typeof dashSizeController.step === "function") {
       dashSizeController.step(dashStep);
     }
 
@@ -479,9 +501,11 @@ export class Controls {
     const sizeRange = config.sizeRange || {};
     const speedRange = config.speedRange || {};
     const elevationRange = config.elevationRange || {};
-    const paneStyleOptions = Array.isArray(config.paneStyleOptions) && config.paneStyleOptions.length > 0
-      ? config.paneStyleOptions
-      : ["Pane", "SVG"];
+    const paneStyleOptions =
+      Array.isArray(config.paneStyleOptions) &&
+      config.paneStyleOptions.length > 0
+        ? config.paneStyleOptions
+        : ["Pane", "SVG"];
 
     const sizeMin = sizeRange.min !== undefined ? sizeRange.min : 50;
     const sizeMax = sizeRange.max !== undefined ? sizeRange.max : 500;
@@ -491,9 +515,12 @@ export class Controls {
     const speedMax = speedRange.max !== undefined ? speedRange.max : 0.5;
     const speedStep = speedRange.step !== undefined ? speedRange.step : 0.01;
 
-    const elevationMin = elevationRange.min !== undefined ? elevationRange.min : 0;
-    const elevationMax = elevationRange.max !== undefined ? elevationRange.max : 200;
-    const elevationStep = elevationRange.step !== undefined ? elevationRange.step : 5;
+    const elevationMin =
+      elevationRange.min !== undefined ? elevationRange.min : 0;
+    const elevationMax =
+      elevationRange.max !== undefined ? elevationRange.max : 200;
+    const elevationStep =
+      elevationRange.step !== undefined ? elevationRange.step : 5;
 
     const planeFolder: GUIFolder = this.gui.addFolder("Plane Controls");
 

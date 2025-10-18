@@ -167,7 +167,9 @@ export class UIManager {
       return;
     }
 
-    const direction = new THREE.Vector3(0, 0, 0).sub(camera.position).normalize();
+    const direction = new THREE.Vector3(0, 0, 0)
+      .sub(camera.position)
+      .normalize();
     const surfacePoint = direction.clone().multiplyScalar(earth.getRadius());
     const coords = vector3ToLatLng(surfacePoint, earth.getRadius());
 

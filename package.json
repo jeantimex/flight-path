@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "repository": {
     "type": "git",
@@ -24,6 +26,7 @@
   "homepage": "https://jeantimex.github.io/flight-path/",
   "devDependencies": {
     "gh-pages": "^6.3.0",
+    "prettier": "^3.6.2",
     "vite": "^6.3.6"
   },
   "dependencies": {

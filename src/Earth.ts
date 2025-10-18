@@ -8,7 +8,10 @@ export class Earth {
   public atmosphere: Atmosphere;
   private onTextureLoaded: (() => void) | null;
 
-  constructor(radius: number = 3000, onTextureLoaded: (() => void) | null = null) {
+  constructor(
+    radius: number = 3000,
+    onTextureLoaded: (() => void) | null = null,
+  ) {
     this.radius = radius;
     this.mesh = null;
     this.atmosphere = new Atmosphere(radius);
@@ -33,11 +36,11 @@ export class Earth {
       undefined,
       // onError callback
       (error) => {
-        console.error('Error loading Earth texture:', error);
+        console.error("Error loading Earth texture:", error);
         if (this.onTextureLoaded) {
           this.onTextureLoaded();
         }
-      }
+      },
     );
 
     // Configure texture properties for better quality

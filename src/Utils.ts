@@ -11,7 +11,11 @@ import * as THREE from "three";
  * @param radius - Sphere radius
  * @returns 3D position vector
  */
-export function latLngToVector3(lat: number, lng: number, radius: number): THREE.Vector3 {
+export function latLngToVector3(
+  lat: number,
+  lng: number,
+  radius: number,
+): THREE.Vector3 {
   // Convert lat/lng to spherical coordinates
   const phi = ((90 - lat) * Math.PI) / 180; // Latitude: 0 at north pole, PI at south pole
   const theta = ((-lng + 180) * Math.PI) / 180; // Longitude: direct conversion
@@ -91,9 +95,11 @@ export interface SunPosition {
  * @param simulatedTimeHours - Optional simulated time in UTC hours (0-24)
  * @returns Object with lat, lng properties
  */
-export function getSunPosition(simulatedTimeHours: number | null = null): SunPosition {
+export function getSunPosition(
+  simulatedTimeHours: number | null = null,
+): SunPosition {
   const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   const utcDate = new Date(utc);
 
   // Calculate day of year (1-365/366)
@@ -104,7 +110,8 @@ export function getSunPosition(simulatedTimeHours: number | null = null): SunPos
   // Solar declination (latitude where sun is directly overhead)
   // More accurate formula using day of year
   // October 1st is around day 274, which should give ~-3.25° declination
-  const declination = 23.45 * Math.sin(degreesToRadians((360 / 365.25) * (dayOfYear - 81)));
+  const declination =
+    23.45 * Math.sin(degreesToRadians((360 / 365.25) * (dayOfYear - 81)));
 
   // Use simulated time if provided, otherwise use current time
   let timeDecimal: number;
@@ -114,7 +121,7 @@ export function getSunPosition(simulatedTimeHours: number | null = null): SunPos
     const hours = utcDate.getUTCHours();
     const minutes = utcDate.getUTCMinutes();
     const seconds = utcDate.getUTCSeconds();
-    timeDecimal = hours + minutes/60 + seconds/3600;
+    timeDecimal = hours + minutes / 60 + seconds / 3600;
   }
 
   // Calculate longitude where sun is at zenith
@@ -129,7 +136,7 @@ export function getSunPosition(simulatedTimeHours: number | null = null): SunPos
 
   return {
     lat: declination,
-    lng: normalizedLongitude
+    lng: normalizedLongitude,
   };
 }
 
@@ -139,7 +146,10 @@ export function getSunPosition(simulatedTimeHours: number | null = null): SunPos
  * @param simulatedTimeHours - Optional simulated time in UTC hours (0-24)
  * @returns Sun position vector
  */
-export function getSunVector3(radius: number = 3000, simulatedTimeHours: number | null = null): THREE.Vector3 {
+export function getSunVector3(
+  radius: number = 3000,
+  simulatedTimeHours: number | null = null,
+): THREE.Vector3 {
   const sunPos = getSunPosition(simulatedTimeHours);
   const sunVector = latLngToVector3(sunPos.lat, sunPos.lng, radius * 3); // Place sun far from Earth
   return sunVector;
@@ -155,7 +165,9 @@ export function getSunVector3(radius: number = 3000, simulatedTimeHours: number 
  */
 export function getCurrentPacificTimeHours(): number {
   const now = new Date();
-  const pacificTime = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
+  const pacificTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }),
+  );
   return pacificTime.getHours() + pacificTime.getMinutes() / 60;
 }
 
@@ -181,7 +193,7 @@ export function hoursToTimeString(hours: number): string {
   const remainingMinutes = (hours - h) * 60;
   const m = Math.floor(remainingMinutes);
   const s = Math.floor((remainingMinutes - m) * 60);
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
 /**
@@ -190,7 +202,7 @@ export function hoursToTimeString(hours: number): string {
  * @returns Decimal hours
  */
 export function timeStringToHours(timeString: string): number {
-  const parts = timeString.split(':').map(Number);
+  const parts = timeString.split(":").map(Number);
   const hours = parts[0] || 0;
   const minutes = parts[1] || 0;
   const seconds = parts[2] || 0;
@@ -210,7 +222,7 @@ export function animateCameraToPosition(
   startPosition: THREE.Vector3,
   targetPosition: THREE.Vector3,
   duration: number = 2000,
-  delay: number = 0
+  delay: number = 0,
 ): void {
   const animateCamera = () => {
     const startTime = Date.now();
@@ -255,7 +267,10 @@ export interface LatLng {
  * @param radius - Sphere radius used for the conversion
  * @returns Object with lat, lng properties
  */
-export function vector3ToLatLng(position: THREE.Vector3, radius: number): LatLng {
+export function vector3ToLatLng(
+  position: THREE.Vector3,
+  radius: number,
+): LatLng {
   // Reverse the coordinate transformation applied in latLngToVector3
   // Original transformation: rotatedX = z, rotatedY = y, rotatedZ = -x
   // So to reverse: x = -rotatedZ, y = rotatedY, z = rotatedX
@@ -264,7 +279,9 @@ export function vector3ToLatLng(position: THREE.Vector3, radius: number): LatLng
   const z = position.x;
 
   // Normalize the vector to the sphere surface
-  const normalizedPosition = new THREE.Vector3(x, y, z).normalize().multiplyScalar(radius);
+  const normalizedPosition = new THREE.Vector3(x, y, z)
+    .normalize()
+    .multiplyScalar(radius);
 
   // Convert cartesian back to spherical coordinates
   const phi = Math.acos(clamp(normalizedPosition.y / radius, -1, 1)); // Latitude angle
@@ -272,7 +289,7 @@ export function vector3ToLatLng(position: THREE.Vector3, radius: number): LatLng
 
   // Convert to lat/lng degrees
   const lat = 90 - (phi * 180) / Math.PI; // 0 at north pole, 180 at south pole -> -90 to +90
-  const lng = ((theta * 180) / Math.PI + 180) % 360 - 180; // -180 to +180
+  const lng = (((theta * 180) / Math.PI + 180) % 360) - 180; // -180 to +180
 
   return { lat, lng };
 }

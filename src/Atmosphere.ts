@@ -18,7 +18,7 @@ export class Atmosphere {
     const atmosphereGeometry = new THREE.SphereGeometry(
       this.earthRadius * 1.25,
       64,
-      32
+      32,
     );
     this.material = new THREE.ShaderMaterial({
       vertexShader: atmosphereVertexShader,
