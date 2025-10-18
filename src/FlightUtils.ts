@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import type { Geolocation } from './Data.ts'
+import { latLngToVector3 } from './Utils.ts'
 
 /**
  * Interface for bounding box configuration
@@ -62,10 +64,100 @@ export interface FlightConfig {
     returnFlight: boolean;
 }
 
+export interface GradientColorConfig {
+    type: 'gradient';
+    departureLat?: number;
+    departureLng?: number;
+}
+
 /**
  * Utility functions for generating flight paths and control points
  */
 export class FlightUtils {
+    /**
+     * Create a gradient color configuration for a flight.
+     * @param departure - Departure geolocation
+     * @returns Gradient configuration or null if no departure
+     */
+    static createGradientColorConfig(departure: Geolocation | null | undefined): GradientColorConfig | null {
+        if (!departure) {
+            return null
+        }
+
+        return {
+            type: 'gradient',
+            departureLat: departure.lat,
+            departureLng: departure.lng
+        }
+    }
+
+    /**
+     * Clone an array of control points.
+     * @param points - Points to clone
+     * @returns Cloned points
+     */
+    static cloneControlPoints(points: THREE.Vector3[]): THREE.Vector3[] {
+        return points.map(point => point.clone())
+    }
+
+    /**
+     * Ensure all control points stay above a minimum altitude.
+     * @param points - Control points to adjust
+     * @param radius - Base sphere radius
+     * @param minAltitude - Minimum altitude above the sphere surface
+     * @returns Adjusted control points
+     */
+    static ensureMinimumCurveAltitude(
+        points: THREE.Vector3[],
+        radius: number,
+        minAltitude: number
+    ): THREE.Vector3[] {
+        const safeRadius = radius + minAltitude
+        return points.map((point) => {
+            if (!point) {
+                return point
+            }
+            const adjusted = point.clone()
+            const length = adjusted.length()
+            if (length > 0 && length < safeRadius) {
+                adjusted.normalize().multiplyScalar(safeRadius)
+            }
+            return adjusted
+        })
+    }
+
+    /**
+     * Normalize raw control points into four evenly-sampled points.
+     * @param points - Input control points
+     * @param radius - Target sphere radius
+     * @param minAltitude - Minimum altitude above the sphere surface
+     * @returns Four normalized control points
+     */
+    static normalizeControlPoints(
+        points: THREE.Vector3[],
+        radius: number,
+        minAltitude: number
+    ): THREE.Vector3[] {
+        const sourcePoints = points && points.length ? this.cloneControlPoints(points) : []
+        if (sourcePoints.length === 4) {
+            return this.ensureMinimumCurveAltitude(sourcePoints, radius, minAltitude)
+        }
+
+        if (!sourcePoints.length) {
+            return []
+        }
+
+        const curve = new THREE.CatmullRomCurve3(sourcePoints)
+        const sampledPoints = [
+            curve.getPoint(0.0),
+            curve.getPoint(0.333),
+            curve.getPoint(0.666),
+            curve.getPoint(1.0)
+        ]
+
+        return this.ensureMinimumCurveAltitude(sampledPoints, radius, minAltitude)
+    }
+
     /**
      * Generate a random point inside a sphere centered at the origin.
      * @param radius - Sphere radius
@@ -103,6 +195,96 @@ export class FlightUtils {
         }
 
         return vector
+    }
+
+    /**
+     * Options for generating parabolic control points between two geolocations.
+     */
+    static generateParabolicControlPoints(
+        departure: Geolocation,
+        arrival: Geolocation,
+        options: {
+            radius: number
+            takeoffOffset: number
+            minCurveAltitude: number
+            minCruiseAltitude: number
+            maxCruiseAltitude: number
+        }
+    ): THREE.Vector3[] {
+        const {
+            radius,
+            takeoffOffset,
+            minCurveAltitude,
+            minCruiseAltitude,
+            maxCruiseAltitude
+        } = options
+
+        const surfaceOffset = Math.max(takeoffOffset, minCurveAltitude)
+        const cruiseMin = Math.max(minCruiseAltitude, surfaceOffset + 5)
+
+        const origin = latLngToVector3(departure.lat, departure.lng, radius)
+        const destination = latLngToVector3(arrival.lat, arrival.lng, radius)
+
+        const startSurface = origin.clone().normalize().multiplyScalar(radius + surfaceOffset)
+        const endSurface = destination.clone().normalize().multiplyScalar(radius + surfaceOffset)
+
+        const distance = startSurface.distanceTo(endSurface)
+        const maxDistance = radius * Math.PI
+        const distanceRatio = Math.min(distance / (maxDistance * 0.3), 1)
+        const cruiseAltitude = cruiseMin + (maxCruiseAltitude - cruiseMin) * Math.pow(distanceRatio, 0.7)
+
+        const climbPoint1 = startSurface.clone().lerp(endSurface, 0.2).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
+        const climbPoint2 = startSurface.clone().lerp(endSurface, 0.35).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
+        const cruisePeak = startSurface.clone().lerp(endSurface, 0.5).normalize().multiplyScalar(radius + cruiseAltitude * 0.85)
+        const descentPoint1 = startSurface.clone().lerp(endSurface, 0.65).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
+        const descentPoint2 = startSurface.clone().lerp(endSurface, 0.8).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
+
+        const startNormal = startSurface.clone().normalize()
+        let pathDirStart = endSurface.clone().sub(startSurface)
+        if (pathDirStart.lengthSq() < 1e-6) {
+            pathDirStart = new THREE.Vector3().randomDirection()
+        }
+        let tangentStart = pathDirStart.clone().sub(startNormal.clone().multiplyScalar(pathDirStart.dot(startNormal)))
+        if (tangentStart.lengthSq() < 1e-6) {
+            tangentStart = new THREE.Vector3().crossVectors(startNormal, new THREE.Vector3(0, 1, 0))
+            if (tangentStart.lengthSq() < 1e-6) {
+                tangentStart = new THREE.Vector3(1, 0, 0)
+            }
+        }
+        tangentStart.normalize()
+        const tangentDistance = radius * 0.08
+        const surfaceLength = startSurface.length()
+        const startTangentPoint = startSurface.clone().add(tangentStart.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(surfaceLength)
+
+        const endNormal = endSurface.clone().normalize()
+        let pathDirEnd = startSurface.clone().sub(endSurface)
+        if (pathDirEnd.lengthSq() < 1e-6) {
+            pathDirEnd = new THREE.Vector3().randomDirection()
+        }
+        let tangentEnd = pathDirEnd.clone().sub(endNormal.clone().multiplyScalar(pathDirEnd.dot(endNormal)))
+        if (tangentEnd.lengthSq() < 1e-6) {
+            tangentEnd = new THREE.Vector3().crossVectors(endNormal, new THREE.Vector3(0, 1, 0))
+            if (tangentEnd.lengthSq() < 1e-6) {
+                tangentEnd = new THREE.Vector3(1, 0, 0)
+            }
+        }
+        tangentEnd.normalize()
+        const endSurfaceLength = endSurface.length()
+        const endTangentPoint = endSurface.clone().add(tangentEnd.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(endSurfaceLength)
+
+        const controlPoints = [
+            startSurface,
+            startTangentPoint,
+            climbPoint1,
+            climbPoint2,
+            cruisePeak,
+            descentPoint1,
+            descentPoint2,
+            endTangentPoint,
+            endSurface
+        ]
+
+        return this.ensureMinimumCurveAltitude(controlPoints, radius, minCurveAltitude)
     }
 
     /**

@@ -147,21 +147,6 @@ function resolveNightMixFromPercent(percentValue: any, fallbackPercent: number =
     return clampPercentValue(percentValue, fallbackPercent) / 100
 }
 
-function ensureMinimumCurveAltitude(points: THREE.Vector3[], radius: number = EARTH_RADIUS, minAltitude: number = MIN_CURVE_ALTITUDE): THREE.Vector3[] {
-    const safeRadius = radius + minAltitude
-    return points.map((point) => {
-        if (!point) {
-            return point
-        }
-        const adjusted = point.clone()
-        const length = adjusted.length()
-        if (length > 0 && length < safeRadius) {
-            adjusted.normalize().multiplyScalar(safeRadius)
-        }
-        return adjusted
-    })
-}
-
 const planeEntries: PlaneEntry[] = Array.isArray(planeDefinitions) && planeDefinitions.length > 0
     ? planeDefinitions.map((plane: any, index: number) => ({
         ...plane,
@@ -312,100 +297,19 @@ function assignRandomPlane(config: Partial<FlightConfig> = {}): FlightConfig {
     })
 }
 
-function createGradientColorConfig(departure: Geolocation): any {
-    if (!departure) {
-        return null
-    }
-
-    return {
-        type: 'gradient',
-        departureLat: departure.lat,
-        departureLng: departure.lng
-    }
-}
-
-function generateParabolicControlPoints(departure: Geolocation, arrival: Geolocation, radius: number = EARTH_RADIUS): THREE.Vector3[] {
-    if (!departure || !arrival) {
-        return []
-    }
-
-    const surfaceOffset = Math.max(TAKEOFF_LANDING_OFFSET, MIN_CURVE_ALTITUDE)
-    const maxCruiseAltitude = MAX_CRUISE_ALTITUDE
-    const minCruiseAltitude = Math.max(MIN_CRUISE_ALTITUDE, surfaceOffset + 5)
-
-    const origin = latLngToVector3(departure.lat, departure.lng, radius)
-    const destination = latLngToVector3(arrival.lat, arrival.lng, radius)
-
-    const startSurface = origin.clone().normalize().multiplyScalar(radius + surfaceOffset)
-    const endSurface = destination.clone().normalize().multiplyScalar(radius + surfaceOffset)
-
-    const distance = startSurface.distanceTo(endSurface)
-    const maxDistance = radius * Math.PI
-    const distanceRatio = Math.min(distance / (maxDistance * 0.3), 1)
-    const cruiseAltitude = minCruiseAltitude + (maxCruiseAltitude - minCruiseAltitude) * Math.pow(distanceRatio, 0.7)
-
-    const climbPoint1 = startSurface.clone().lerp(endSurface, 0.2).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
-    const climbPoint2 = startSurface.clone().lerp(endSurface, 0.35).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
-    const cruisePeak = startSurface.clone().lerp(endSurface, 0.5).normalize().multiplyScalar(radius + cruiseAltitude * 0.85)
-    const descentPoint1 = startSurface.clone().lerp(endSurface, 0.65).normalize().multiplyScalar(radius + cruiseAltitude * 0.75)
-    const descentPoint2 = startSurface.clone().lerp(endSurface, 0.8).normalize().multiplyScalar(radius + cruiseAltitude * 0.4)
-
-    // Tangent guiding points near takeoff/landing to avoid surface penetration
-    const startNormal = startSurface.clone().normalize()
-    let pathDirStart = endSurface.clone().sub(startSurface)
-    if (pathDirStart.lengthSq() < 1e-6) {
-        pathDirStart = new THREE.Vector3().randomDirection()
-    }
-    let tangentStart = pathDirStart.clone().sub(startNormal.clone().multiplyScalar(pathDirStart.dot(startNormal)))
-    if (tangentStart.lengthSq() < 1e-6) {
-        tangentStart = new THREE.Vector3().crossVectors(startNormal, new THREE.Vector3(0, 1, 0))
-        if (tangentStart.lengthSq() < 1e-6) {
-            tangentStart = new THREE.Vector3(1, 0, 0)
-        }
-    }
-    tangentStart.normalize()
-    const tangentDistance = radius * 0.08
-    const surfaceLength = startSurface.length()
-    const startTangentPoint = startSurface.clone().add(tangentStart.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(surfaceLength)
-
-    const endNormal = endSurface.clone().normalize()
-    let pathDirEnd = startSurface.clone().sub(endSurface)
-    if (pathDirEnd.lengthSq() < 1e-6) {
-        pathDirEnd = new THREE.Vector3().randomDirection()
-    }
-    let tangentEnd = pathDirEnd.clone().sub(endNormal.clone().multiplyScalar(pathDirEnd.dot(endNormal)))
-    if (tangentEnd.lengthSq() < 1e-6) {
-        tangentEnd = new THREE.Vector3().crossVectors(endNormal, new THREE.Vector3(0, 1, 0))
-        if (tangentEnd.lengthSq() < 1e-6) {
-            tangentEnd = new THREE.Vector3(1, 0, 0)
-        }
-    }
-    tangentEnd.normalize()
-    const endSurfaceLength = endSurface.length()
-    const endTangentPoint = endSurface.clone().add(tangentEnd.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(endSurfaceLength)
-
-    const controlPoints = [
-        startSurface,
-        startTangentPoint,
-        climbPoint1,
-        climbPoint2,
-        cruisePeak,
-        descentPoint1,
-        descentPoint2,
-        endTangentPoint,
-        endSurface
-    ]
-
-    return ensureMinimumCurveAltitude(controlPoints, radius, MIN_CURVE_ALTITUDE)
-}
-
 function createDataFlightConfig(entry: FlightData): FlightConfig | null {
     if (!entry) {
         return null
     }
 
     const { departure, arrival } = entry
-    const controlPoints = generateParabolicControlPoints(departure, arrival, EARTH_RADIUS)
+    const controlPoints = FlightUtils.generateParabolicControlPoints(departure, arrival, {
+        radius: EARTH_RADIUS,
+        takeoffOffset: TAKEOFF_LANDING_OFFSET,
+        minCurveAltitude: MIN_CURVE_ALTITUDE,
+        minCruiseAltitude: MIN_CRUISE_ALTITUDE,
+        maxCruiseAltitude: MAX_CRUISE_ALTITUDE
+    })
     if (!controlPoints.length) {
         return null
     }
@@ -413,7 +317,7 @@ function createDataFlightConfig(entry: FlightData): FlightConfig | null {
     return assignRandomPlane({
         controlPoints,
         segmentCount: params.segmentCount,
-        curveColor: createGradientColorConfig(departure),
+        curveColor: FlightUtils.createGradientColorConfig(departure),
         paneCount: 1,
         paneSize: params.planeSize,
         elevationOffset: params.elevationOffset,
@@ -439,7 +343,11 @@ function preGenerateFlightConfigs(): void {
             }
 
             const configWithPlane = ensurePlaneDefaults(config)
-            const normalizedPoints = normalizeControlPoints(configWithPlane.controlPoints)
+            const normalizedPoints = FlightUtils.normalizeControlPoints(
+                configWithPlane.controlPoints,
+                EARTH_RADIUS,
+                MIN_CURVE_ALTITUDE
+            )
 
             preGeneratedConfigs.push({
                 ...configWithPlane,
@@ -467,7 +375,11 @@ function preGenerateFlightConfigs(): void {
             elevationOffset: params.elevationOffset,
             flightData: null
         })
-        const normalizedPoints = normalizeControlPoints(config.controlPoints)
+        const normalizedPoints = FlightUtils.normalizeControlPoints(
+            config.controlPoints,
+            EARTH_RADIUS,
+            MIN_CURVE_ALTITUDE
+        )
         preGeneratedConfigs.push({
             ...config,
             controlPoints: normalizedPoints,
@@ -632,23 +544,6 @@ const gui = new dat.GUI()
 // gui.add(params, 'randomSpeed').name('Random Speed').onChange(() => {
 //     applyAnimationSpeedMode()
 // })
-
-function normalizeControlPoints(points: THREE.Vector3[]): THREE.Vector3[] {
-    const sourcePoints = points && points.length ? cloneControlPoints(points) : []
-    if (sourcePoints.length === 4) {
-        return ensureMinimumCurveAltitude(sourcePoints, EARTH_RADIUS, MIN_CURVE_ALTITUDE)
-    }
-
-    const curve = new THREE.CatmullRomCurve3(sourcePoints)
-    const sampledPoints = [
-        curve.getPoint(0.0),
-        curve.getPoint(0.333),
-        curve.getPoint(0.666),
-        curve.getPoint(1.0)
-    ]
-
-    return ensureMinimumCurveAltitude(sampledPoints, EARTH_RADIUS, MIN_CURVE_ALTITUDE)
-}
 
 function resolvePaneColor(config: Partial<FlightConfig> = {}): number {
     if (typeof config.paneColor === 'number') {
@@ -1094,10 +989,6 @@ function applyPaneTexture(): void {
     }
 }
 
-function cloneControlPoints(points: THREE.Vector3[]): THREE.Vector3[] {
-    return points.map(point => point.clone())
-}
-
 // Create a single flight from config
 function createFlightFromConfig(config: FlightConfig, flightIndex: number): Flight {
     // Add merged renderers and indices to config
@@ -1189,7 +1080,7 @@ function initializeFlights(): void {
 
         const flightConfig: FlightConfig = {
             ...baseConfig,
-            controlPoints: cloneControlPoints(baseConfig.controlPoints),
+            controlPoints: FlightUtils.cloneControlPoints(baseConfig.controlPoints),
             segmentCount: params.segmentCount,
             curveColor: baseConfig.curveColor,
             paneSize: params.planeSize,
@@ -1233,7 +1124,7 @@ function updateFlightCount(count: number): void {
                 }
                 const flightConfig: FlightConfig = {
                     ...baseConfig,
-                    controlPoints: cloneControlPoints(baseConfig.controlPoints),
+                    controlPoints: FlightUtils.cloneControlPoints(baseConfig.controlPoints),
                     segmentCount: params.segmentCount,
                     curveColor: baseConfig.curveColor,
                     paneSize: params.planeSize,
@@ -1426,7 +1317,11 @@ function updatePaneStyle(style: string): void {
 function randomizeAllFlightCurves(): void {
     flights.forEach((flight, index) => {
         const randomConfig = FlightUtils.generateRandomFlightConfig({ numControlPoints: 2 })
-        const normalizedPoints = normalizeControlPoints(randomConfig.controlPoints)
+        const normalizedPoints = FlightUtils.normalizeControlPoints(
+            randomConfig.controlPoints,
+            EARTH_RADIUS,
+            MIN_CURVE_ALTITUDE
+        )
 
         const existingConfig = preGeneratedConfigs[index] || {}
         let updatedConfig: FlightConfig = {
@@ -1447,7 +1342,7 @@ function randomizeAllFlightCurves(): void {
         preGeneratedConfigs[index] = updatedConfig
 
         flight.setFlightData(updatedConfig.flightData)
-        flight.setControlPoints(cloneControlPoints(normalizedPoints))
+        flight.setControlPoints(FlightUtils.cloneControlPoints(normalizedPoints))
         flight.setPaneElevation(updatedConfig.elevationOffset)
         flight.setPaneTextureIndex(updatedConfig.paneTextureIndex)
         flight.setCurveColor(updatedConfig.curveColor)
