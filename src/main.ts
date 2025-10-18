@@ -107,6 +107,10 @@ let preGeneratedConfigs: FlightConfig[] = []
 let loadingScreenCreated: boolean = false
 let minLoadingTimeoutId: number | null = null
 
+window.earthTextureLoaded = false
+window.minTimeElapsed = false
+window.guiControlsInstance = null
+
 const DEFAULT_PLANE_COLOR: number = 0xff6666
 const FALLBACK_PLANE_COUNT: number = 8
 
@@ -554,7 +558,7 @@ function removeLoadingScreen(): void {
 }
 
 function checkReadyToStart(): void {
-    if ((window as any).earthTextureLoaded && (window as any).minTimeElapsed) {
+    if (window.earthTextureLoaded && window.minTimeElapsed) {
         setInitialCameraPosition()
     }
 }
@@ -882,7 +886,7 @@ function setupGlobalControls(): void {
     })
 
     guiControls = controlsManager.getControls()
-    ;(window as any).guiControlsInstance = controlsManager
+    window.guiControlsInstance = controlsManager
 
     document.querySelectorAll('.dg.ac').forEach(container => {
         (container as HTMLElement).style.display = 'none'
@@ -1471,7 +1475,7 @@ stars.addToScene(scene)
 
 // Add Earth with atmosphere
 earth = new Earth(3000, () => {
-    ;(window as any).earthTextureLoaded = true
+    window.earthTextureLoaded = true
     checkReadyToStart()
 })
 earth.addToScene(scene)
@@ -1491,15 +1495,15 @@ baseDirectionalIntensity = directionalLight.intensity
 setupGlobalControls()
 updateLighting()
 updateSunPosition()
-;(window as any).earthTextureLoaded = false
-;(window as any).minTimeElapsed = false
+window.earthTextureLoaded = false
+window.minTimeElapsed = false
 createLoadingScreen()
 createFooter()
 hideUIElementsDuringLoading()
-minLoadingTimeoutId = setTimeout(() => {
-    ;(window as any).minTimeElapsed = true
+minLoadingTimeoutId = window.setTimeout(() => {
+    window.minTimeElapsed = true
     checkReadyToStart()
-}, 2000) as any
+}, 2000)
 
 // Position camera
 camera.position.set(0, 2000, 8000)
