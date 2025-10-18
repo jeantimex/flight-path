@@ -148,6 +148,9 @@ let loadingScreenElement: HTMLElement | null = null
 let footerCoordinatesElement: HTMLElement | null = null
 let controlsManager: Controls | null = null
 let guiControls: any = null
+let baseAmbientColor: THREE.Color | null = null
+let baseAmbientIntensity: number = 0
+let baseDirectionalIntensity: number = 0
 
 // GUI controls
 const params: GuiParams = {
@@ -694,10 +697,34 @@ function toggleAtmosphereEffect(enabled: boolean): void {
 
 function toggleDayNightEffect(enabled: boolean): void {
     if (enabled) {
+        directionalLight.visible = true
+        if (baseAmbientColor) {
+            ambientLight.color.copy(baseAmbientColor)
+        }
+        if (baseAmbientIntensity > 0) {
+            ambientLight.intensity = baseAmbientIntensity
+        }
+        if (baseDirectionalIntensity > 0) {
+            directionalLight.intensity = baseDirectionalIntensity
+        }
         updateLighting()
     } else {
-        directionalLight.intensity = 0.5
-        ambientLight.intensity = 1.2
+        if (!baseAmbientColor) {
+            baseAmbientColor = ambientLight.color.clone()
+        }
+        if (baseAmbientIntensity === 0) {
+            baseAmbientIntensity = ambientLight.intensity
+        }
+        if (baseDirectionalIntensity === 0) {
+            baseDirectionalIntensity = directionalLight.intensity
+        }
+
+        directionalLight.visible = false
+        ambientLight.color.set(0xffffff)
+        const fallbackIntensity = guiControls
+            ? Math.max(guiControls.dayBrightness, guiControls.nightBrightness)
+            : 1.6
+        ambientLight.intensity = Math.max(fallbackIntensity, 1.6)
     }
 }
 
@@ -1402,6 +1429,9 @@ directionalLight.position.set(1000, 1000, 1000)
 directionalLight.target.position.set(0, 0, 0)
 scene.add(directionalLight.target)
 scene.add(directionalLight)
+baseAmbientColor = ambientLight.color.clone()
+baseAmbientIntensity = ambientLight.intensity
+baseDirectionalIntensity = directionalLight.intensity
 
 setupGlobalControls()
 updateLighting()
