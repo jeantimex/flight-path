@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import atmosphereVertexShader from "./shaders/atmosphere.vert?raw";
+import atmosphereFragmentShader from "./shaders/atmosphere.frag?raw";
 
 export class Atmosphere {
   private earthRadius: number;
@@ -19,25 +21,8 @@ export class Atmosphere {
       32
     );
     this.material = new THREE.ShaderMaterial({
-      vertexShader: `
-                varying vec3 vNormal;
-                varying vec3 vPosition;
-
-                void main() {
-                    vNormal = normalize(normalMatrix * normal);
-                    vPosition = position;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-      fragmentShader: `
-                varying vec3 vNormal;
-                varying vec3 vPosition;
-
-                void main() {
-                    float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-                    gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
-                }
-            `,
+      vertexShader: atmosphereVertexShader,
+      fragmentShader: atmosphereFragmentShader,
       blending: THREE.AdditiveBlending,
       side: THREE.BackSide,
       transparent: true,

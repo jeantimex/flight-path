@@ -122,24 +122,27 @@ interface ControlsCallbacks {
   onHidePlaneChange?: (value: boolean) => void;
 }
 
+// Known controller keys for strong typing while supporting dynamic keys
+type KnownControllerKey =
+  | "realTimeSun"
+  | "timeDisplay"
+  | "timeSlider"
+  | "numFlights"
+  | "returnFlight"
+  | "dashSize"
+  | "gapSize"
+  | "hidePath"
+  | "planeSize"
+  | "planeColor"
+  | "animationSpeed"
+  | "elevationOffset"
+  | "paneStyle"
+  | "hidePlane";
+
 // Interface for controllers storage
-interface Controllers {
-  [key: string]: GUIController;
-  realTimeSun?: GUIController;
-  timeDisplay?: GUIController;
-  timeSlider?: GUIController;
-  numFlights?: GUIController;
-  returnFlight?: GUIController;
-  dashSize?: GUIController;
-  gapSize?: GUIController;
-  hidePath?: GUIController;
-  planeSize?: GUIController;
-  planeColor?: GUIController;
-  animationSpeed?: GUIController;
-  elevationOffset?: GUIController;
-  paneStyle?: GUIController;
-  hidePlane?: GUIController;
-}
+type Controllers = Partial<Record<KnownControllerKey, GUIController>> & {
+  [key: string]: GUIController | undefined;
+};
 
 /**
  * Controls class manages all GUI controls and their interactions
@@ -393,8 +396,12 @@ export class Controls {
           this.callbacks.onFlightCountChange(value);
         }
       });
-    if (typeof this.controllers.numFlights.step === "function") {
-      this.controllers.numFlights.step(countStep);
+    const numFlightsController = this.controllers.numFlights;
+    if (
+      numFlightsController &&
+      typeof numFlightsController.step === "function"
+    ) {
+      numFlightsController.step(countStep);
     }
 
     this.controllers.returnFlight = flightControlsFolder
@@ -433,8 +440,12 @@ export class Controls {
           this.callbacks.onDashSizeChange(value);
         }
       });
-    if (typeof this.controllers.dashSize.step === "function") {
-      this.controllers.dashSize.step(dashStep);
+    const dashSizeController = this.controllers.dashSize;
+    if (
+      dashSizeController &&
+      typeof dashSizeController.step === "function"
+    ) {
+      dashSizeController.step(dashStep);
     }
 
     this.controllers.gapSize = flightPathFolder
@@ -445,8 +456,9 @@ export class Controls {
           this.callbacks.onGapSizeChange(value);
         }
       });
-    if (typeof this.controllers.gapSize.step === "function") {
-      this.controllers.gapSize.step(gapStep);
+    const gapSizeController = this.controllers.gapSize;
+    if (gapSizeController && typeof gapSizeController.step === "function") {
+      gapSizeController.step(gapStep);
     }
 
     this.controllers.hidePath = flightPathFolder
@@ -493,8 +505,9 @@ export class Controls {
           this.callbacks.onPlaneSizeChange(value);
         }
       });
-    if (typeof this.controllers.planeSize.step === "function") {
-      this.controllers.planeSize.step(sizeStep);
+    const planeSizeController = this.controllers.planeSize;
+    if (planeSizeController && typeof planeSizeController.step === "function") {
+      planeSizeController.step(sizeStep);
     }
 
     this.controllers.planeColor = planeFolder
@@ -514,8 +527,12 @@ export class Controls {
           this.callbacks.onAnimationSpeedChange(value);
         }
       });
-    if (typeof this.controllers.animationSpeed.step === "function") {
-      this.controllers.animationSpeed.step(speedStep);
+    const animationSpeedController = this.controllers.animationSpeed;
+    if (
+      animationSpeedController &&
+      typeof animationSpeedController.step === "function"
+    ) {
+      animationSpeedController.step(speedStep);
     }
 
     this.controllers.elevationOffset = planeFolder
@@ -526,8 +543,12 @@ export class Controls {
           this.callbacks.onPlaneElevationChange(value);
         }
       });
-    if (typeof this.controllers.elevationOffset.step === "function") {
-      this.controllers.elevationOffset.step(elevationStep);
+    const elevationOffsetController = this.controllers.elevationOffset;
+    if (
+      elevationOffsetController &&
+      typeof elevationOffsetController.step === "function"
+    ) {
+      elevationOffsetController.step(elevationStep);
     }
 
     this.controllers.paneStyle = planeFolder
@@ -600,8 +621,8 @@ export class Controls {
     }
   }
 
-  public setHidePlane(value: boolean | any): void {
-    const boolValue = !!value;
+  public setHidePlane(value: unknown): void {
+    const boolValue = Boolean(value);
     this.guiControls.hidePlane = boolValue;
     if (this.controllers.hidePlane) {
       this.controllers.hidePlane.updateDisplay();
@@ -628,8 +649,8 @@ export class Controls {
     }
   }
 
-  public setHidePath(value: boolean | any): void {
-    const boolValue = !!value;
+  public setHidePath(value: unknown): void {
+    const boolValue = Boolean(value);
     this.guiControls.hidePath = boolValue;
     if (this.controllers.hidePath) {
       this.controllers.hidePath.updateDisplay();
@@ -646,8 +667,8 @@ export class Controls {
     }
   }
 
-  public setReturnFlight(value: boolean | any): void {
-    const boolValue = !!value;
+  public setReturnFlight(value: unknown): void {
+    const boolValue = Boolean(value);
     this.guiControls.returnFlight = boolValue;
     if (this.controllers.returnFlight) {
       this.controllers.returnFlight.updateDisplay();
