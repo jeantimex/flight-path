@@ -99,6 +99,10 @@ const clock = new THREE.Clock()
 const DATA_FLIGHT_COUNT: number = Array.isArray(dataFlights) ? dataFlights.length : 0
 const MAX_FLIGHTS: number = DATA_FLIGHT_COUNT > 0 ? DATA_FLIGHT_COUNT : 30000
 const EARTH_RADIUS: number = 3000
+const MIN_CURVE_ALTITUDE: number = 20
+const TAKEOFF_LANDING_OFFSET: number = 18
+const MIN_CRUISE_ALTITUDE: number = 30
+const MAX_CRUISE_ALTITUDE: number = 220
 let preGeneratedConfigs: FlightConfig[] = []
 let loadingScreenCreated: boolean = false
 let minLoadingTimeoutId: number | null = null
@@ -137,6 +141,21 @@ function resolveDayIntensityFromPercent(percentValue: any, fallbackPercent: numb
 
 function resolveNightMixFromPercent(percentValue: any, fallbackPercent: number = DEFAULT_NIGHT_BRIGHTNESS_PERCENT): number {
     return clampPercentValue(percentValue, fallbackPercent) / 100
+}
+
+function ensureMinimumCurveAltitude(points: THREE.Vector3[], radius: number = EARTH_RADIUS, minAltitude: number = MIN_CURVE_ALTITUDE): THREE.Vector3[] {
+    const safeRadius = radius + minAltitude
+    return points.map((point) => {
+        if (!point) {
+            return point
+        }
+        const adjusted = point.clone()
+        const length = adjusted.length()
+        if (length > 0 && length < safeRadius) {
+            adjusted.normalize().multiplyScalar(safeRadius)
+        }
+        return adjusted
+    })
 }
 
 const planeEntries: PlaneEntry[] = Array.isArray(planeDefinitions) && planeDefinitions.length > 0
@@ -306,9 +325,9 @@ function generateParabolicControlPoints(departure: Geolocation, arrival: Geoloca
         return []
     }
 
-    const surfaceOffset = 5
-    const maxCruiseAltitude = 200
-    const minCruiseAltitude = 15
+    const surfaceOffset = Math.max(TAKEOFF_LANDING_OFFSET, MIN_CURVE_ALTITUDE)
+    const maxCruiseAltitude = MAX_CRUISE_ALTITUDE
+    const minCruiseAltitude = Math.max(MIN_CRUISE_ALTITUDE, surfaceOffset + 5)
 
     const origin = latLngToVector3(departure.lat, departure.lng, radius)
     const destination = latLngToVector3(arrival.lat, arrival.lng, radius)
@@ -361,7 +380,7 @@ function generateParabolicControlPoints(departure: Geolocation, arrival: Geoloca
     const endSurfaceLength = endSurface.length()
     const endTangentPoint = endSurface.clone().add(tangentEnd.clone().multiplyScalar(tangentDistance)).normalize().multiplyScalar(endSurfaceLength)
 
-    return [
+    const controlPoints = [
         startSurface,
         startTangentPoint,
         climbPoint1,
@@ -372,6 +391,8 @@ function generateParabolicControlPoints(departure: Geolocation, arrival: Geoloca
         endTangentPoint,
         endSurface
     ]
+
+    return ensureMinimumCurveAltitude(controlPoints, radius, MIN_CURVE_ALTITUDE)
 }
 
 function createDataFlightConfig(entry: FlightData): FlightConfig | null {
@@ -611,16 +632,18 @@ const gui = new dat.GUI()
 function normalizeControlPoints(points: THREE.Vector3[]): THREE.Vector3[] {
     const sourcePoints = points && points.length ? cloneControlPoints(points) : []
     if (sourcePoints.length === 4) {
-        return sourcePoints
+        return ensureMinimumCurveAltitude(sourcePoints, EARTH_RADIUS, MIN_CURVE_ALTITUDE)
     }
 
     const curve = new THREE.CatmullRomCurve3(sourcePoints)
-    return [
+    const sampledPoints = [
         curve.getPoint(0.0),
         curve.getPoint(0.333),
         curve.getPoint(0.666),
         curve.getPoint(1.0)
     ]
+
+    return ensureMinimumCurveAltitude(sampledPoints, EARTH_RADIUS, MIN_CURVE_ALTITUDE)
 }
 
 function resolvePaneColor(config: Partial<FlightConfig> = {}): number {
