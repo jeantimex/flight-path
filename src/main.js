@@ -294,6 +294,7 @@ function setupGUI() {
   if (gui) return;
 
   gui = new GUI();
+  gui.domElement.style.width = "320px";
   gui
     .add(params, "planeCount", 10, 1000000, 10)
     .name("Plane Count")

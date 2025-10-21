@@ -18,3 +18,12 @@ body {
 canvas {
   display: block;
 }
+
+.dg .cr.number input[type="text"] {
+  width: 70px !important;
+}
+
+.dg .cr.number .slider {
+  width: calc(100% - 90px) !important;
+  margin-right: 4px;
+}
