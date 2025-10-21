@@ -1,13 +1,14 @@
 import "./style.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GUI } from "dat.gui";
 import WebGPURenderer from "three/src/renderers/webgpu/WebGPURenderer.js";
 import { Curve } from "./Curve.js";
 import { loadSVGPlaneGeometry } from "./SVGPlaneGeometry.js";
 
 const PLANE_COUNT = 100;
-const PLANE_SIZE = 1.0;
-const BASE_PLANE_SCALE = 50;
+const DEFAULT_PLANE_COUNT = 100;
+const DEFAULT_PLANE_SCALE = 5;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const FALLBACK_AXIS = new THREE.Vector3(0, 0, 1);
 
@@ -46,8 +47,18 @@ controls.maxDistance = 20000;
 controls.maxPolarAngle = Math.PI;
 
 const clock = new THREE.Clock();
+const params = {
+  planeCount: DEFAULT_PLANE_COUNT,
+  planeScale: DEFAULT_PLANE_SCALE,
+};
 const planeEntries = [];
+const curves = [];
 let planeMesh;
+let planeGeometry;
+let planeMaterial;
+let svgWidth = 0;
+let svgHeight = 0;
+let gui;
 
 const tempMatrix = new THREE.Matrix4();
 const tempPosition = new THREE.Vector3();
@@ -58,41 +69,81 @@ const tempForwardDir = new THREE.Vector3();
 const tempHorizontal = new THREE.Vector3();
 const tempForward = new THREE.Vector3();
 const tempFinalPosition = new THREE.Vector3();
-const scaleVector = new THREE.Vector3(
-  BASE_PLANE_SCALE * PLANE_SIZE,
-  BASE_PLANE_SCALE * PLANE_SIZE,
-  BASE_PLANE_SCALE * PLANE_SIZE,
-);
+const scaleVector = new THREE.Vector3();
 
 async function initializeScene() {
   await renderer.init();
 
-  const {
-    geometry: planeGeometry,
-    width: svgWidth,
-    height: svgHeight,
-  } = await loadSVGPlaneGeometry("/plane8.svg");
+  const planeData = await loadSVGPlaneGeometry("/plane8.svg");
+  planeGeometry = planeData.geometry;
+  svgWidth = planeData.width;
+  svgHeight = planeData.height;
 
-  const planeMaterial = new THREE.MeshBasicMaterial({
+  planeMaterial = new THREE.MeshBasicMaterial({
     color: 0x4488ff,
     side: THREE.DoubleSide,
   });
 
+  rebuildPlanes(params.planeCount);
+  setupGUI();
+
+  renderer.setAnimationLoop(() => {
+    const delta = clock.getDelta();
+    updatePlanes(delta);
+    controls.update();
+    renderer.render(scene, camera);
+  });
+}
+
+function setupGUI() {
+  if (gui) return;
+
+  gui = new GUI();
+  gui
+    .add(params, "planeCount", 10, 30000, 10)
+    .name("Plane Count")
+    .onFinishChange((value) => {
+      rebuildPlanes(Math.max(1, Math.floor(value)));
+    });
+
+  gui
+    .add(params, "planeScale", 1, 200, 1)
+    .name("Plane Scale")
+    .onChange(() => updateScaleVector());
+
+  updateScaleVector();
+}
+
+function rebuildPlanes(count) {
+  if (!planeGeometry || !planeMaterial) return;
+
+  const targetCount = Math.max(1, Math.floor(count));
+  params.planeCount = targetCount;
+
+  if (planeMesh) {
+    scene.remove(planeMesh);
+  }
+
+  curves.forEach((curve) => curve.remove());
+  curves.length = 0;
+  planeEntries.length = 0;
+
   planeMesh = new THREE.InstancedMesh(
     planeGeometry,
     planeMaterial,
-    PLANE_COUNT,
+    targetCount,
   );
   planeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   planeMesh.frustumCulled = false;
   scene.add(planeMesh);
 
-  for (let i = 0; i < PLANE_COUNT; i += 1) {
+  for (let i = 0; i < targetCount; i += 1) {
     const rand = mulberry32(i * 7919 + 1);
 
     const controlPoints = createCurveControlPoints(rand);
     const curve = new Curve(scene, { controlPoints });
     curve.create();
+    curves.push(curve);
 
     const speed = 0.04 + rand() * 0.08;
 
@@ -105,12 +156,7 @@ async function initializeScene() {
     });
   }
 
-  renderer.setAnimationLoop(() => {
-    const delta = clock.getDelta();
-    updatePlanes(delta);
-    controls.update();
-    renderer.render(scene, camera);
-  });
+  planeMesh.instanceMatrix.needsUpdate = true;
 }
 
 function updatePlanes(delta) {
@@ -131,12 +177,12 @@ function updatePlanes(delta) {
     tempUp.crossVectors(tempRight, tempTangent).normalize();
     tempForwardDir.copy(tempTangent).negate();
 
+    const scale = params.planeScale;
+
     tempHorizontal
       .copy(tempRight)
-      .multiplyScalar((-entry.svgWidth / 2) * BASE_PLANE_SCALE * PLANE_SIZE);
-    tempForward
-      .copy(tempTangent)
-      .multiplyScalar((entry.svgHeight / 2) * BASE_PLANE_SCALE * PLANE_SIZE);
+      .multiplyScalar((-entry.svgWidth / 2) * scale);
+    tempForward.copy(tempTangent).multiplyScalar((entry.svgHeight / 2) * scale);
 
     tempFinalPosition.copy(tempPosition).add(tempHorizontal).add(tempForward);
 
@@ -194,3 +240,7 @@ window.addEventListener("resize", () => {
 initializeScene().catch((error) => {
   console.error("Failed to initialize scene:", error);
 });
+function updateScaleVector() {
+  const s = params.planeScale;
+  scaleVector.set(s, s, s);
+}
