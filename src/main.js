@@ -42,6 +42,7 @@ let planeCount = DEFAULT_PLANE_COUNT;
 
 let svgWidth = 0;
 let svgHeight = 0;
+let cachedCurveControlPoints = [];
 
 const computeUniformArray = new Float32Array(4);
 const renderUniformArray = new Float32Array(16);
@@ -49,6 +50,7 @@ const renderUniformArray = new Float32Array(16);
 const params = {
   planeCount: DEFAULT_PLANE_COUNT,
   planeScale: DEFAULT_PLANE_SCALE,
+  showCurves: true,
 };
 
 let gui;
@@ -289,6 +291,72 @@ function setupGUI() {
     });
 
   gui.add(params, "planeScale", 0.1, 200, 0.1).name("Plane Scale");
+
+  gui
+    .add(params, "showCurves")
+    .name("Show Curves")
+    .onChange((value) => {
+      setCurvesEnabled(value);
+    });
+}
+
+function disposeCurveResources() {
+  if (curveVertexBuffer) {
+    curveVertexBuffer.destroy();
+    curveVertexBuffer = null;
+  }
+  curveDraws = [];
+}
+
+function setCurvesEnabled(enabled) {
+  const shouldShow = Boolean(enabled);
+  params.showCurves = shouldShow;
+
+  if (shouldShow) {
+    rebuildCurveGeometry();
+  } else {
+    disposeCurveResources();
+  }
+}
+
+function rebuildCurveGeometry(controlPointsSource = cachedCurveControlPoints) {
+  disposeCurveResources();
+
+  if (!params.showCurves || !device) {
+    return;
+  }
+
+  if (!controlPointsSource || controlPointsSource.length === 0) {
+    return;
+  }
+
+  const curveVertices = [];
+  let curveVertexOffset = 0;
+
+  for (const controlPoints of controlPointsSource) {
+    const catmull = new THREE.CatmullRomCurve3(controlPoints);
+    for (let s = 0; s <= CURVE_SEGMENTS; s += 1) {
+      const t = s / CURVE_SEGMENTS;
+      const point = catmull.getPoint(t);
+      curveVertices.push(point.x, point.y, point.z);
+    }
+    curveDraws.push({
+      offset: curveVertexOffset,
+      count: CURVE_SEGMENTS + 1,
+    });
+    curveVertexOffset += CURVE_SEGMENTS + 1;
+  }
+
+  if (curveVertices.length === 0) {
+    return;
+  }
+
+  const curveData = new Float32Array(curveVertices);
+  curveVertexBuffer = device.createBuffer({
+    size: curveData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(curveVertexBuffer, 0, curveData);
 }
 
 function rebuildPlanes(count) {
@@ -299,9 +367,7 @@ function rebuildPlanes(count) {
   const controlPointsArray = new Float32Array(planeCount * 16);
   const infoArray = new Float32Array(planeCount * 4);
   const stateArray = new Float32Array(planeCount * 4);
-  const curveVertices = [];
-  curveDraws = [];
-  let curveVertexOffset = 0;
+  cachedCurveControlPoints = [];
 
   for (let i = 0; i < planeCount; i += 1) {
     const rand = mulberry32(i * 7919 + 1);
@@ -330,17 +396,7 @@ function rebuildPlanes(count) {
     stateArray[stateOffset + 3] = 0;
 
     if (i < MAX_RENDERED_CURVES) {
-      const catmull = new THREE.CatmullRomCurve3(controlPoints);
-      for (let s = 0; s <= CURVE_SEGMENTS; s += 1) {
-        const t = s / CURVE_SEGMENTS;
-        const point = catmull.getPoint(t);
-        curveVertices.push(point.x, point.y, point.z);
-      }
-      curveDraws.push({
-        offset: curveVertexOffset,
-        count: CURVE_SEGMENTS + 1,
-      });
-      curveVertexOffset += CURVE_SEGMENTS + 1;
+      cachedCurveControlPoints.push(controlPoints);
     }
   }
 
@@ -348,7 +404,6 @@ function rebuildPlanes(count) {
   if (infoBuffer) infoBuffer.destroy();
   if (stateBuffer) stateBuffer.destroy();
   if (matricesBuffer) matricesBuffer.destroy();
-  if (curveVertexBuffer) curveVertexBuffer.destroy();
 
   controlBuffer = device.createBuffer({
     size: controlPointsArray.byteLength,
@@ -387,16 +442,10 @@ function rebuildPlanes(count) {
   }
   device.queue.writeBuffer(matricesBuffer, 0, identityMatrices);
 
-  if (curveVertices.length > 0) {
-    const curveData = new Float32Array(curveVertices);
-    curveVertexBuffer = device.createBuffer({
-      size: curveData.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(curveVertexBuffer, 0, curveData);
+  if (params.showCurves) {
+    rebuildCurveGeometry();
   } else {
-    curveVertexBuffer = null;
-    curveDraws = [];
+    disposeCurveResources();
   }
 
   if (!computeUniformBuffer) {
@@ -509,7 +558,7 @@ function stepSimulation(delta) {
   renderPass.setVertexBuffer(0, planeVertexBuffer);
   renderPass.draw(planeVertexCount, planeCount, 0, 0);
 
-  if (curveVertexBuffer && curveDraws.length > 0) {
+  if (params.showCurves && curveVertexBuffer && curveDraws.length > 0) {
     renderPass.setPipeline(linePipeline);
     renderPass.setBindGroup(0, lineSceneBindGroup);
     renderPass.setVertexBuffer(0, curveVertexBuffer);
