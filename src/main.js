@@ -1,68 +1,34 @@
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { SVGPlane } from './SVGPlane.js'
+import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer.js'
 import { Curve } from './Curve.js'
-
-// Scene setup
-const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000)
-const renderer = new THREE.WebGLRenderer({ antialias: true })
-renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setClearColor(0xEFEFEF)
-document.querySelector('#app').appendChild(renderer.domElement)
-
-// Global variables
-let flightCurve
-const clock = new THREE.Clock()
-let animationTime = 0
-let currentPlane = null
+import { SimplePlane } from './SimplePlane.js'
 
 const planeSize = 1.0
 const curveType = 'Original'
 
-// Function to get curve control points based on type
-function getCurveControlPoints(type) {
-    if (type === 'Circle') {
-        const radius = 3000
-        return [
-            new THREE.Vector3(radius, 0, 0),
-            new THREE.Vector3(0, 0, radius),
-            new THREE.Vector3(-radius, 0, 0),
-            new THREE.Vector3(0, 0, -radius),
-            new THREE.Vector3(radius, 0, 0) // Close the circle
-        ]
-    } else {
-        // Original curve
-        return [
-            new THREE.Vector3(-1000, -5000, -5000),
-            new THREE.Vector3(1000, 0, 0),
-            new THREE.Vector3(800, 5000, 5000),
-            new THREE.Vector3(-500, 0, 10000)
-        ]
-    }
+if (typeof navigator === 'undefined' || !navigator.gpu) {
+    throw new Error('WebGPU is not supported on this device.')
 }
 
-// Initialize with SVG plane
-async function initializePlane() {
-    // Create the flight curve
-    const controlPoints = getCurveControlPoints(curveType)
-    flightCurve = new Curve(scene, { controlPoints })
-    flightCurve.create()
-
-    // Create the plane
-    currentPlane = new SVGPlane(scene)
-    await currentPlane.load()
-}
-
-// Start animation once SVG plane is loaded
-initializePlane()
-
-// Position camera
+const scene = new THREE.Scene()
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000)
 camera.position.set(0, 2000, 8000)
 camera.lookAt(0, 0, 0)
 
-// Setup OrbitControls
+const canvas = document.createElement('canvas')
+document.querySelector('#app').appendChild(canvas)
+
+const renderer = new WebGPURenderer({
+    antialias: true,
+    canvas
+})
+
+renderer.setSize(window.innerWidth, window.innerHeight)
+renderer.setPixelRatio(window.devicePixelRatio || 1)
+renderer.setClearColor(0xEFEFEF)
+
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
 controls.dampingFactor = 0.05
@@ -71,39 +37,65 @@ controls.minDistance = 100
 controls.maxDistance = 20000
 controls.maxPolarAngle = Math.PI
 
-// Function to update plane position and orientation based on curve
+const clock = new THREE.Clock()
+let animationTime = 0
+let flightCurve
+let currentPlane
+
+function getCurveControlPoints(type) {
+    if (type === 'Circle') {
+        const radius = 3000
+        return [
+            new THREE.Vector3(radius, 0, 0),
+            new THREE.Vector3(0, 0, radius),
+            new THREE.Vector3(-radius, 0, 0),
+            new THREE.Vector3(0, 0, -radius),
+            new THREE.Vector3(radius, 0, 0)
+        ]
+    }
+
+    return [
+        new THREE.Vector3(-1000, -5000, -5000),
+        new THREE.Vector3(1000, 0, 0),
+        new THREE.Vector3(800, 5000, 5000),
+        new THREE.Vector3(-500, 0, 10000)
+    ]
+}
+
+async function initializeScene() {
+    await renderer.init()
+
+    const controlPoints = getCurveControlPoints(curveType)
+    flightCurve = new Curve(scene, { controlPoints })
+    flightCurve.create()
+
+    currentPlane = new SimplePlane(scene)
+    await currentPlane.load()
+
+    renderer.setAnimationLoop(() => {
+        const delta = clock.getDelta()
+        animationTime += delta * 0.1
+        const t = animationTime % 1
+
+        updatePlaneOnCurve(t)
+        controls.update()
+        renderer.render(scene, camera)
+    })
+}
+
 function updatePlaneOnCurve(t) {
     if (!currentPlane || !flightCurve || !flightCurve.exists()) return
-
-    // Delegate to the plane's specific implementation
     currentPlane.updatePositionAndOrientation(flightCurve, planeSize, t)
 }
 
-// Animation loop
-function animate() {
-    requestAnimationFrame(animate)
-
-    const delta = clock.getDelta()
-
-    // Update animation time
-    animationTime += delta * 0.1 // Adjust speed as needed
-    const t = (animationTime % 1) // Loop from 0 to 1
-
-    // Update plane position and orientation
-    updatePlaneOnCurve(t)
-
-    // Update controls
-    controls.update()
-
-    renderer.render(scene, camera)
-}
-
-// Handle window resize
 window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight
+    const width = window.innerWidth
+    const height = window.innerHeight
+    camera.aspect = width / height
     camera.updateProjectionMatrix()
-    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setSize(width, height)
 })
 
-// Start animation
-animate()
+initializeScene().catch((error) => {
+    console.error('Failed to initialize scene:', error)
+})
