@@ -193,7 +193,8 @@ async function createPipelines() {
     },
     primitive: {
       topology: "triangle-list",
-      cullMode: "back",
+      frontFace: "ccw",
+      cullMode: "none",
     },
     depthStencil: {
       format: "depth24plus",
