@@ -2,13 +2,12 @@ import "./style.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GUI } from "dat.gui";
-import { loadSVGPlaneGeometry } from "./SVGPlaneGeometry.js";
 
 const DEFAULT_PLANE_COUNT = 100;
-const DEFAULT_PLANE_SCALE = 5;
+const DEFAULT_PLANE_SCALE = 20;
 const WORKGROUP_SIZE = 64;
-const MAX_RENDERED_CURVES = 500;
 const CURVE_SEGMENTS = 64;
+const CONTROL_POINTS_PER_CURVE = 4;
 let device;
 let context;
 let presentationFormat;
@@ -35,17 +34,25 @@ let renderUniformBuffer;
 let controlBuffer;
 let infoBuffer;
 let stateBuffer;
-let matricesBuffer;
+let particleBuffer;
 
 let workgroupCount = 0;
 let planeCount = DEFAULT_PLANE_COUNT;
 
-let svgWidth = 0;
-let svgHeight = 0;
 let cachedCurveControlPoints = [];
 
 const computeUniformArray = new Float32Array(4);
-const renderUniformArray = new Float32Array(16);
+const renderUniformArray = new Float32Array(24);
+
+const PARTICLE_VERTICES = new Float32Array([
+  -0.5, -0.5,
+  0.5, -0.5,
+  -0.5, 0.5,
+  -0.5, 0.5,
+  0.5, -0.5,
+  0.5, 0.5,
+]);
+const PARTICLE_VERTEX_COUNT = PARTICLE_VERTICES.length / 2;
 
 const params = {
   planeCount: DEFAULT_PLANE_COUNT,
@@ -110,15 +117,7 @@ async function initialize() {
 
   await createPipelines();
 
-  const planeData = await loadSVGPlaneGeometry("/plane8.svg");
-  planeVertexCount = planeData.vertexCount;
-  svgWidth = planeData.width;
-  svgHeight = planeData.height;
-  planeVertexBuffer = device.createBuffer({
-    size: planeData.positions.byteLength,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(planeVertexBuffer, 0, planeData.positions);
+  createParticleGeometry();
 
   rebuildPlanes(params.planeCount);
   setupGUI();
@@ -184,12 +183,12 @@ async function createPipelines() {
       entryPoint: "vs_main",
       buffers: [
         {
-          arrayStride: 12,
+          arrayStride: 8,
           attributes: [
             {
               shaderLocation: 0,
               offset: 0,
-              format: "float32x3",
+              format: "float32x2",
             },
           ],
         },
@@ -279,6 +278,18 @@ async function createPipelines() {
   });
 }
 
+function createParticleGeometry() {
+  planeVertexCount = PARTICLE_VERTEX_COUNT;
+  if (planeVertexBuffer) {
+    planeVertexBuffer.destroy();
+  }
+  planeVertexBuffer = device.createBuffer({
+    size: PARTICLE_VERTICES.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(planeVertexBuffer, 0, PARTICLE_VERTICES);
+}
+
 function setupGUI() {
   if (gui) return;
 
@@ -330,10 +341,16 @@ function rebuildCurveGeometry(controlPointsSource = cachedCurveControlPoints) {
     return;
   }
 
+  const targetCount = Math.min(planeCount, controlPointsSource.length);
+  if (targetCount <= 0) {
+    return;
+  }
+
   const curveVertices = [];
   let curveVertexOffset = 0;
 
-  for (const controlPoints of controlPointsSource) {
+  for (let i = 0; i < targetCount; i += 1) {
+    const controlPoints = controlPointsSource[i];
     const catmull = new THREE.CatmullRomCurve3(controlPoints);
     for (let s = 0; s <= CURVE_SEGMENTS; s += 1) {
       const t = s / CURVE_SEGMENTS;
@@ -364,7 +381,8 @@ function rebuildPlanes(count) {
   params.planeCount = planeCount;
   workgroupCount = Math.ceil(planeCount / WORKGROUP_SIZE);
 
-  const controlPointsArray = new Float32Array(planeCount * 16);
+  const controlPointStride = CONTROL_POINTS_PER_CURVE * 4;
+  const controlPointsArray = new Float32Array(planeCount * controlPointStride);
   const infoArray = new Float32Array(planeCount * 4);
   const stateArray = new Float32Array(planeCount * 4);
   cachedCurveControlPoints = [];
@@ -373,8 +391,8 @@ function rebuildPlanes(count) {
     const rand = mulberry32(i * 7919 + 1);
     const controlPoints = createCurveControlPoints(rand);
 
-    for (let j = 0; j < 4; j += 1) {
-      const offset = i * 16 + j * 4;
+    for (let j = 0; j < CONTROL_POINTS_PER_CURVE; j += 1) {
+      const offset = i * controlPointStride + j * 4;
       const point = controlPoints[j];
       controlPointsArray[offset + 0] = point.x;
       controlPointsArray[offset + 1] = point.y;
@@ -384,8 +402,8 @@ function rebuildPlanes(count) {
 
     const infoOffset = i * 4;
     const speed = 0.04 + rand() * 0.08;
-    infoArray[infoOffset + 0] = svgWidth;
-    infoArray[infoOffset + 1] = svgHeight;
+    infoArray[infoOffset + 0] = 0;
+    infoArray[infoOffset + 1] = 0;
     infoArray[infoOffset + 2] = speed;
     infoArray[infoOffset + 3] = 0;
 
@@ -395,15 +413,13 @@ function rebuildPlanes(count) {
     stateArray[stateOffset + 2] = 0;
     stateArray[stateOffset + 3] = 0;
 
-    if (i < MAX_RENDERED_CURVES) {
-      cachedCurveControlPoints.push(controlPoints);
-    }
+    cachedCurveControlPoints.push(controlPoints);
   }
 
   if (controlBuffer) controlBuffer.destroy();
   if (infoBuffer) infoBuffer.destroy();
   if (stateBuffer) stateBuffer.destroy();
-  if (matricesBuffer) matricesBuffer.destroy();
+  if (particleBuffer) particleBuffer.destroy();
 
   controlBuffer = device.createBuffer({
     size: controlPointsArray.byteLength,
@@ -417,30 +433,14 @@ function rebuildPlanes(count) {
     size: stateArray.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
-  matricesBuffer = device.createBuffer({
-    size: planeCount * 64,
-    usage:
-      GPUBufferUsage.STORAGE |
-      GPUBufferUsage.COPY_DST |
-      GPUBufferUsage.COPY_SRC |
-      GPUBufferUsage.INDIRECT,
+  particleBuffer = device.createBuffer({
+    size: planeCount * 16,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
 
   device.queue.writeBuffer(controlBuffer, 0, controlPointsArray);
   device.queue.writeBuffer(infoBuffer, 0, infoArray);
   device.queue.writeBuffer(stateBuffer, 0, stateArray);
-
-  const identityMatrices = new Float32Array(planeCount * 16);
-  for (let i = 0; i < planeCount; i += 1) {
-    const offset = i * 16;
-    identityMatrices[offset + 0] = 1;
-    identityMatrices[offset + 5] = 1;
-    identityMatrices[offset + 10] = 1;
-    identityMatrices[offset + 15] = 1;
-    identityMatrices[offset + 12] = (i % 10) * 200 - 1000;
-    identityMatrices[offset + 13] = ((i / 10) | 0) * 200 - 1000;
-  }
-  device.queue.writeBuffer(matricesBuffer, 0, identityMatrices);
 
   if (params.showCurves) {
     rebuildCurveGeometry();
@@ -461,7 +461,7 @@ function rebuildPlanes(count) {
       { binding: 0, resource: { buffer: controlBuffer } },
       { binding: 1, resource: { buffer: infoBuffer } },
       { binding: 2, resource: { buffer: stateBuffer } },
-      { binding: 3, resource: { buffer: matricesBuffer } },
+      { binding: 3, resource: { buffer: particleBuffer } },
       { binding: 4, resource: { buffer: computeUniformBuffer } },
     ],
   });
@@ -473,7 +473,7 @@ function rebuildPlanes(count) {
       {
         binding: 0,
         resource: {
-          buffer: matricesBuffer,
+          buffer: particleBuffer,
         },
       },
     ],
@@ -510,7 +510,18 @@ function updateSceneUniforms() {
     camera.projectionMatrix,
     camera.matrixWorldInverse,
   );
-  renderUniformArray.set(tempMatrix.elements);
+  renderUniformArray.set(tempMatrix.elements, 0);
+
+  const cameraMatrix = camera.matrixWorld.elements;
+  renderUniformArray[16] = cameraMatrix[0];
+  renderUniformArray[17] = cameraMatrix[1];
+  renderUniformArray[18] = cameraMatrix[2];
+  renderUniformArray[19] = 0;
+  renderUniformArray[20] = cameraMatrix[4];
+  renderUniformArray[21] = cameraMatrix[5];
+  renderUniformArray[22] = cameraMatrix[6];
+  renderUniformArray[23] = 0;
+
   device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformArray);
 }
 
@@ -619,8 +630,8 @@ struct PlaneState {
   data : array<vec4<f32>>,
 };
 
-struct OutputMatrices {
-  data : array<mat4x4<f32>>,
+struct OutputParticles {
+  data : array<vec4<f32>>,
 };
 
 struct Uniforms {
@@ -633,7 +644,7 @@ struct Uniforms {
 @group(0) @binding(0) var<storage, read> controlPoints : ControlPoints;
 @group(0) @binding(1) var<storage, read> planeInfo : PlaneInfo;
 @group(0) @binding(2) var<storage, read_write> planeState : PlaneState;
-@group(0) @binding(3) var<storage, read_write> outputMatrices : OutputMatrices;
+@group(0) @binding(3) var<storage, read_write> particles : OutputParticles;
 @group(0) @binding(4) var<uniform> uniforms : Uniforms;
 
 fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
@@ -647,15 +658,6 @@ fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32
   );
 }
 
-fn catmullRomTangent(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
-  let t2 = t * t;
-  return 0.5 * (
-    (-p0 + p2) +
-    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * (2.0 * t) +
-    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * (3.0 * t2)
-  );
-}
-
 @compute @workgroup_size(${WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id : vec3<u32>) {
   let index = id.x;
@@ -664,11 +666,7 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     return;
   }
 
-  let base = index * 4u;
-  let p0 = controlPoints.data[base + 0u].xyz;
-  let p1 = controlPoints.data[base + 1u].xyz;
-  let p2 = controlPoints.data[base + 2u].xyz;
-  let p3 = controlPoints.data[base + 3u].xyz;
+  let base = index * ${CONTROL_POINTS_PER_CURVE}u;
 
   var state = planeState.data[index];
   let info = planeInfo.data[index];
@@ -677,28 +675,25 @@ fn main(@builtin(global_invocation_id) id : vec3<u32>) {
   state.x = updatedTime;
   planeState.data[index] = state;
 
-  let point = catmullRom(p0, p1, p2, p3, updatedTime);
-  var tangent = normalize(catmullRomTangent(p0, p1, p2, p3, updatedTime));
+  let segments = ${CONTROL_POINTS_PER_CURVE - 1}u;
+  let scaled = f32(segments) * updatedTime;
+  let clampedScaled = min(scaled, f32(segments));
+  let segmentIndex = min(u32(floor(clampedScaled)), segments - 1u);
+  let localT = clampedScaled - f32(segmentIndex);
 
-  var right = cross(tangent, vec3<f32>(0.0, 1.0, 0.0));
-  if (dot(right, right) < 1e-6) {
-    right = cross(vec3<f32>(0.0, 0.0, 1.0), tangent);
-  }
-  right = normalize(right);
-  var up = normalize(cross(right, tangent));
-  let forward = -tangent;
+  let maxIndex = i32(${CONTROL_POINTS_PER_CURVE - 1});
+  let i0 = clamp(i32(segmentIndex) - 1, 0, maxIndex);
+  let i1 = clamp(i32(segmentIndex), 0, maxIndex);
+  let i2 = clamp(i32(segmentIndex) + 1, 0, maxIndex);
+  let i3 = clamp(i32(segmentIndex) + 2, 0, maxIndex);
 
-  let halfWidth = info.x * 0.5 * uniforms.scale;
-  let halfHeight = info.y * 0.5 * uniforms.scale;
-  let position = point + (-right * halfWidth) + (tangent * halfHeight);
+  let p0 = controlPoints.data[base + u32(i0)].xyz;
+  let p1 = controlPoints.data[base + u32(i1)].xyz;
+  let p2 = controlPoints.data[base + u32(i2)].xyz;
+  let p3 = controlPoints.data[base + u32(i3)].xyz;
 
-  let scale = uniforms.scale;
-  let col0 = vec4<f32>(right * scale, 0.0);
-  let col1 = vec4<f32>(up * scale, 0.0);
-  let col2 = vec4<f32>(forward * scale, 0.0);
-  let col3 = vec4<f32>(position, 1.0);
-
-  outputMatrices.data[index] = mat4x4<f32>(col0, col1, col2, col3);
+  let point = catmullRom(p0, p1, p2, p3, localT);
+  particles.data[index] = vec4<f32>(point, uniforms.scale);
 }
 `;
 }
@@ -707,24 +702,35 @@ function renderShaderWGSL() {
   return /* wgsl */ `
 struct SceneUniforms {
   viewProjection : mat4x4<f32>,
+  cameraRight : vec4<f32>,
+  cameraUp : vec4<f32>,
 };
 
-struct InstanceMatrices {
-  data : array<mat4x4<f32>>,
+struct ParticlePositions {
+  data : array<vec4<f32>>,
 };
 
 @group(0) @binding(0) var<uniform> scene : SceneUniforms;
-@group(1) @binding(0) var<storage, read> instanceMatrices : InstanceMatrices;
+@group(1) @binding(0) var<storage, read> particles : ParticlePositions;
 
 struct VertexOutput {
   @builtin(position) position : vec4<f32>,
 };
 
 @vertex
-fn vs_main(@location(0) position : vec3<f32>, @builtin(instance_index) instanceIndex : u32) -> VertexOutput {
+fn vs_main(
+  @location(0) quadPosition : vec2<f32>,
+  @builtin(instance_index) instanceIndex : u32
+) -> VertexOutput {
   var output : VertexOutput;
-  let model = instanceMatrices.data[instanceIndex];
-  let worldPosition = model * vec4<f32>(position, 1.0);
+  let particle = particles.data[instanceIndex];
+  let center = particle.xyz;
+  let size = particle.w;
+
+  let right = scene.cameraRight.xyz;
+  let up = scene.cameraUp.xyz;
+  let offset = (quadPosition.x * right + quadPosition.y * up) * size;
+  let worldPosition = vec4<f32>(center + offset, 1.0);
   output.position = scene.viewProjection * worldPosition;
   return output;
 }
@@ -740,6 +746,8 @@ function lineShaderWGSL() {
   return /* wgsl */ `
 struct SceneUniforms {
   viewProjection : mat4x4<f32>,
+  cameraRight : vec4<f32>,
+  cameraUp : vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> scene : SceneUniforms;
