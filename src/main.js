@@ -1,89 +1,94 @@
-import './style.css'
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer.js'
-import { Curve } from './Curve.js'
-import { SVGPlane } from './SVGPlane.js'
+import "./style.css";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import WebGPURenderer from "three/src/renderers/webgpu/WebGPURenderer.js";
+import { Curve } from "./Curve.js";
+import { SVGPlane } from "./SVGPlane.js";
 
-const planeSize = 1.0
+const planeSize = 1.0;
 
-if (typeof navigator === 'undefined' || !navigator.gpu) {
-    throw new Error('WebGPU is not supported on this device.')
+if (typeof navigator === "undefined" || !navigator.gpu) {
+  throw new Error("WebGPU is not supported on this device.");
 }
 
-const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50000)
-camera.position.set(0, 2000, 8000)
-camera.lookAt(0, 0, 0)
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  75,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  50000,
+);
+camera.position.set(0, 2000, 8000);
+camera.lookAt(0, 0, 0);
 
-const canvas = document.createElement('canvas')
-document.querySelector('#app').appendChild(canvas)
+const canvas = document.createElement("canvas");
+document.querySelector("#app").appendChild(canvas);
 
 const renderer = new WebGPURenderer({
-    antialias: true,
-    canvas
-})
+  antialias: true,
+  canvas,
+});
 
-renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(window.devicePixelRatio || 1)
-renderer.setClearColor(0xEFEFEF)
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setClearColor(0xefefef);
 
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true
-controls.dampingFactor = 0.05
-controls.screenSpacePanning = false
-controls.minDistance = 100
-controls.maxDistance = 20000
-controls.maxPolarAngle = Math.PI
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.screenSpacePanning = false;
+controls.minDistance = 100;
+controls.maxDistance = 20000;
+controls.maxPolarAngle = Math.PI;
 
-const clock = new THREE.Clock()
-let animationTime = 0
-let flightCurve
-let currentPlane
+const clock = new THREE.Clock();
+let animationTime = 0;
+let flightCurve;
+let currentPlane;
 
 function getCurveControlPoints() {
-    return [
-        new THREE.Vector3(-1000, -5000, -5000),
-        new THREE.Vector3(1000, 0, 0),
-        new THREE.Vector3(800, 5000, 5000),
-        new THREE.Vector3(-500, 0, 10000)
-    ]
+  return [
+    new THREE.Vector3(-1000, -5000, -5000),
+    new THREE.Vector3(1000, 0, 0),
+    new THREE.Vector3(800, 5000, 5000),
+    new THREE.Vector3(-500, 0, 10000),
+  ];
 }
 
 async function initializeScene() {
-    await renderer.init()
+  await renderer.init();
 
-    const controlPoints = getCurveControlPoints()
-    flightCurve = new Curve(scene, { controlPoints })
-    flightCurve.create()
+  const controlPoints = getCurveControlPoints();
+  flightCurve = new Curve(scene, { controlPoints });
+  flightCurve.create();
 
-    currentPlane = new SVGPlane(scene)
-    await currentPlane.load()
+  currentPlane = new SVGPlane(scene);
+  await currentPlane.load();
 
-    renderer.setAnimationLoop(() => {
-        const delta = clock.getDelta()
-        animationTime += delta * 0.1
-        const t = animationTime % 1
+  renderer.setAnimationLoop(() => {
+    const delta = clock.getDelta();
+    animationTime += delta * 0.1;
+    const t = animationTime % 1;
 
-        updatePlaneOnCurve(t)
-        controls.update()
-        renderer.render(scene, camera)
-    })
+    updatePlaneOnCurve(t);
+    controls.update();
+    renderer.render(scene, camera);
+  });
 }
 
 function updatePlaneOnCurve(t) {
-    if (!currentPlane || !flightCurve || !flightCurve.exists()) return
-    currentPlane.updatePositionAndOrientation(flightCurve, planeSize, t)
+  if (!currentPlane || !flightCurve || !flightCurve.exists()) return;
+  currentPlane.updatePositionAndOrientation(flightCurve, planeSize, t);
 }
 
-window.addEventListener('resize', () => {
-    const width = window.innerWidth
-    const height = window.innerHeight
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
-    renderer.setSize(width, height)
-})
+window.addEventListener("resize", () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+});
 
 initializeScene().catch((error) => {
-    console.error('Failed to initialize scene:', error)
-})
+  console.error("Failed to initialize scene:", error);
+});

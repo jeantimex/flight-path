@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "format": "prettier --write ."
   },
   "repository": {
     "type": "git",
@@ -21,6 +22,7 @@
   },
   "homepage": "https://github.com/jeantimex/flight-path#readme",
   "devDependencies": {
+    "prettier": "^3.4.2",
     "vite": "^6.3.6"
   },
   "dependencies": {
