@@ -3,10 +3,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer.js'
 import { Curve } from './Curve.js'
-import { SimplePlane } from './SimplePlane.js'
+import { SVGPlane } from './SVGPlane.js'
 
 const planeSize = 1.0
-const curveType = 'Original'
 
 if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new Error('WebGPU is not supported on this device.')
@@ -42,18 +41,7 @@ let animationTime = 0
 let flightCurve
 let currentPlane
 
-function getCurveControlPoints(type) {
-    if (type === 'Circle') {
-        const radius = 3000
-        return [
-            new THREE.Vector3(radius, 0, 0),
-            new THREE.Vector3(0, 0, radius),
-            new THREE.Vector3(-radius, 0, 0),
-            new THREE.Vector3(0, 0, -radius),
-            new THREE.Vector3(radius, 0, 0)
-        ]
-    }
-
+function getCurveControlPoints() {
     return [
         new THREE.Vector3(-1000, -5000, -5000),
         new THREE.Vector3(1000, 0, 0),
@@ -65,11 +53,11 @@ function getCurveControlPoints(type) {
 async function initializeScene() {
     await renderer.init()
 
-    const controlPoints = getCurveControlPoints(curveType)
+    const controlPoints = getCurveControlPoints()
     flightCurve = new Curve(scene, { controlPoints })
     flightCurve.create()
 
-    currentPlane = new SimplePlane(scene)
+    currentPlane = new SVGPlane(scene)
     await currentPlane.load()
 
     renderer.setAnimationLoop(() => {
