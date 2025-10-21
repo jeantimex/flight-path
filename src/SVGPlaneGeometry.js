@@ -42,12 +42,15 @@ export async function loadSVGPlaneGeometry(path = "/plane8.svg") {
         boundingBox.getCenter(center);
 
         mergedGeometry.translate(-center.x, -center.y, -center.z);
-
-        // Orient the plane so its normal initially points +Z
         mergedGeometry.rotateX(Math.PI / 2);
 
+        const nonIndexed = mergedGeometry.toNonIndexed();
+        const positionAttribute = nonIndexed.getAttribute("position");
+        const positions = new Float32Array(positionAttribute.array);
+
         resolve({
-          geometry: mergedGeometry,
+          positions,
+          vertexCount: positionAttribute.count,
           width: size.x,
           height: size.y,
         });

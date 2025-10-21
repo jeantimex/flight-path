@@ -2,21 +2,62 @@ import "./style.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GUI } from "dat.gui";
-import WebGPURenderer from "three/src/renderers/webgpu/WebGPURenderer.js";
-import { Curve } from "./Curve.js";
 import { loadSVGPlaneGeometry } from "./SVGPlaneGeometry.js";
 
-const PLANE_COUNT = 100;
 const DEFAULT_PLANE_COUNT = 100;
 const DEFAULT_PLANE_SCALE = 5;
-const WORLD_UP = new THREE.Vector3(0, 1, 0);
-const FALLBACK_AXIS = new THREE.Vector3(0, 0, 1);
+const WORKGROUP_SIZE = 64;
+const MAX_RENDERED_CURVES = 500;
+const CURVE_SEGMENTS = 64;
+let device;
+let context;
+let presentationFormat;
+let depthTexture;
+let depthTextureView;
 
-if (typeof navigator === "undefined" || !navigator.gpu) {
-  throw new Error("WebGPU is not supported on this device.");
-}
+let planeVertexBuffer;
+let planeVertexCount = 0;
+let curveVertexBuffer;
+let curveDraws = [];
+let lineSceneBindGroup;
 
-const scene = new THREE.Scene();
+let computePipeline;
+let renderPipeline;
+let linePipeline;
+
+let computeBindGroup;
+let renderSceneBindGroup;
+let renderInstanceBindGroup;
+
+let computeUniformBuffer;
+let renderUniformBuffer;
+
+let controlBuffer;
+let infoBuffer;
+let stateBuffer;
+let matricesBuffer;
+
+let workgroupCount = 0;
+let planeCount = DEFAULT_PLANE_COUNT;
+
+let svgWidth = 0;
+let svgHeight = 0;
+
+const computeUniformArray = new Float32Array(4);
+const renderUniformArray = new Float32Array(16);
+
+const params = {
+  planeCount: DEFAULT_PLANE_COUNT,
+  planeScale: DEFAULT_PLANE_SCALE,
+};
+
+let gui;
+
+const canvas = document.createElement("canvas");
+canvas.style.width = "100%";
+canvas.style.height = "100%";
+document.querySelector("#app").appendChild(canvas);
+
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
@@ -26,19 +67,7 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 2000, 8000);
 camera.lookAt(0, 0, 0);
 
-const canvas = document.createElement("canvas");
-document.querySelector("#app").appendChild(canvas);
-
-const renderer = new WebGPURenderer({
-  antialias: true,
-  canvas,
-});
-
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio || 1);
-renderer.setClearColor(0xefefef);
-
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.screenSpacePanning = false;
@@ -46,52 +75,193 @@ controls.minDistance = 100;
 controls.maxDistance = 20000;
 controls.maxPolarAngle = Math.PI;
 
-const clock = new THREE.Clock();
-const params = {
-  planeCount: DEFAULT_PLANE_COUNT,
-  planeScale: DEFAULT_PLANE_SCALE,
-};
-const planeEntries = [];
-const curves = [];
-let planeMesh;
-let planeGeometry;
-let planeMaterial;
-let svgWidth = 0;
-let svgHeight = 0;
-let gui;
-
+let previousTime = performance.now();
 const tempMatrix = new THREE.Matrix4();
-const tempPosition = new THREE.Vector3();
-const tempTangent = new THREE.Vector3();
-const tempRight = new THREE.Vector3();
-const tempUp = new THREE.Vector3();
-const tempForwardDir = new THREE.Vector3();
-const tempHorizontal = new THREE.Vector3();
-const tempForward = new THREE.Vector3();
-const tempFinalPosition = new THREE.Vector3();
-const scaleVector = new THREE.Vector3();
 
-async function initializeScene() {
-  await renderer.init();
+async function initialize() {
+  if (!navigator.gpu) {
+    throw new Error("WebGPU is not supported on this device.");
+  }
+
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error("Unable to acquire GPU adapter.");
+  }
+
+  device = await adapter.requestDevice();
+
+  context = canvas.getContext("webgpu");
+  presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+  configureContext();
+
+  await createPipelines();
 
   const planeData = await loadSVGPlaneGeometry("/plane8.svg");
-  planeGeometry = planeData.geometry;
+  planeVertexCount = planeData.vertexCount;
   svgWidth = planeData.width;
   svgHeight = planeData.height;
-
-  planeMaterial = new THREE.MeshBasicMaterial({
-    color: 0x4488ff,
-    side: THREE.DoubleSide,
+  planeVertexBuffer = device.createBuffer({
+    size: planeData.positions.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
+  device.queue.writeBuffer(planeVertexBuffer, 0, planeData.positions);
 
   rebuildPlanes(params.planeCount);
   setupGUI();
 
-  renderer.setAnimationLoop(() => {
-    const delta = clock.getDelta();
-    updatePlanes(delta);
-    controls.update();
-    renderer.render(scene, camera);
+  window.addEventListener("resize", () => {
+    configureContext();
+  });
+
+  requestAnimationFrame(frame);
+}
+
+function configureContext() {
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.floor(window.innerWidth * dpr));
+  const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+
+  canvas.width = width;
+  canvas.height = height;
+
+  context.configure({
+    device,
+    format: presentationFormat,
+    alphaMode: "opaque",
+    size: [width, height],
+  });
+
+  if (depthTexture) {
+    depthTexture.destroy();
+  }
+
+  depthTexture = device.createTexture({
+    size: [width, height, 1],
+    format: "depth24plus",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  depthTextureView = depthTexture.createView();
+
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+
+async function createPipelines() {
+  const computeModule = device.createShaderModule({
+    code: computeShaderWGSL(),
+  });
+
+  computePipeline = device.createComputePipeline({
+    layout: "auto",
+    compute: {
+      module: computeModule,
+      entryPoint: "main",
+    },
+  });
+
+  const renderModule = device.createShaderModule({
+    code: renderShaderWGSL(),
+  });
+
+  renderPipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: renderModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 12,
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: "float32x3",
+            },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: renderModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: presentationFormat,
+        },
+      ],
+    },
+    primitive: {
+      topology: "triangle-list",
+      cullMode: "back",
+    },
+    depthStencil: {
+      format: "depth24plus",
+      depthWriteEnabled: true,
+      depthCompare: "less",
+    },
+  });
+
+  const lineModule = device.createShaderModule({
+    code: lineShaderWGSL(),
+  });
+
+  linePipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: {
+      module: lineModule,
+      entryPoint: "vs_main",
+      buffers: [
+        {
+          arrayStride: 12,
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: "float32x3",
+            },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: lineModule,
+      entryPoint: "fs_main",
+      targets: [
+        {
+          format: presentationFormat,
+        },
+      ],
+    },
+    primitive: {
+      topology: "line-strip",
+      cullMode: "none",
+    },
+    depthStencil: {
+      format: "depth24plus",
+      depthWriteEnabled: false,
+      depthCompare: "less-equal",
+    },
+  });
+
+  if (!renderUniformBuffer) {
+    renderUniformBuffer = device.createBuffer({
+      size: renderUniformArray.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+  }
+
+  const renderSceneLayout = renderPipeline.getBindGroupLayout(0);
+  renderSceneBindGroup = device.createBindGroup({
+    layout: renderSceneLayout,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: renderUniformBuffer,
+        },
+      },
+    ],
   });
 }
 
@@ -106,94 +276,239 @@ function setupGUI() {
       rebuildPlanes(Math.max(1, Math.floor(value)));
     });
 
-  gui
-    .add(params, "planeScale", 1, 200, 1)
-    .name("Plane Scale")
-    .onChange(() => updateScaleVector());
-
-  updateScaleVector();
+  gui.add(params, "planeScale", 0.1, 200, 0.1).name("Plane Scale");
 }
 
 function rebuildPlanes(count) {
-  if (!planeGeometry || !planeMaterial) return;
+  planeCount = Math.max(1, Math.floor(count));
+  params.planeCount = planeCount;
+  workgroupCount = Math.ceil(planeCount / WORKGROUP_SIZE);
 
-  const targetCount = Math.max(1, Math.floor(count));
-  params.planeCount = targetCount;
+  const controlPointsArray = new Float32Array(planeCount * 16);
+  const infoArray = new Float32Array(planeCount * 4);
+  const stateArray = new Float32Array(planeCount * 4);
+  const curveVertices = [];
+  curveDraws = [];
+  let curveVertexOffset = 0;
 
-  if (planeMesh) {
-    scene.remove(planeMesh);
+  for (let i = 0; i < planeCount; i += 1) {
+    const rand = mulberry32(i * 7919 + 1);
+    const controlPoints = createCurveControlPoints(rand);
+
+    for (let j = 0; j < 4; j += 1) {
+      const offset = i * 16 + j * 4;
+      const point = controlPoints[j];
+      controlPointsArray[offset + 0] = point.x;
+      controlPointsArray[offset + 1] = point.y;
+      controlPointsArray[offset + 2] = point.z;
+      controlPointsArray[offset + 3] = 0;
+    }
+
+    const infoOffset = i * 4;
+    const speed = 0.04 + rand() * 0.08;
+    infoArray[infoOffset + 0] = svgWidth;
+    infoArray[infoOffset + 1] = svgHeight;
+    infoArray[infoOffset + 2] = speed;
+    infoArray[infoOffset + 3] = 0;
+
+    const stateOffset = i * 4;
+    stateArray[stateOffset + 0] = rand();
+    stateArray[stateOffset + 1] = 0;
+    stateArray[stateOffset + 2] = 0;
+    stateArray[stateOffset + 3] = 0;
+
+    if (i < MAX_RENDERED_CURVES) {
+      const catmull = new THREE.CatmullRomCurve3(controlPoints);
+      for (let s = 0; s <= CURVE_SEGMENTS; s += 1) {
+        const t = s / CURVE_SEGMENTS;
+        const point = catmull.getPoint(t);
+        curveVertices.push(point.x, point.y, point.z);
+      }
+      curveDraws.push({
+        offset: curveVertexOffset,
+        count: CURVE_SEGMENTS + 1,
+      });
+      curveVertexOffset += CURVE_SEGMENTS + 1;
+    }
   }
 
-  curves.forEach((curve) => curve.remove());
-  curves.length = 0;
-  planeEntries.length = 0;
+  if (controlBuffer) controlBuffer.destroy();
+  if (infoBuffer) infoBuffer.destroy();
+  if (stateBuffer) stateBuffer.destroy();
+  if (matricesBuffer) matricesBuffer.destroy();
+  if (curveVertexBuffer) curveVertexBuffer.destroy();
 
-  planeMesh = new THREE.InstancedMesh(
-    planeGeometry,
-    planeMaterial,
-    targetCount,
-  );
-  planeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  planeMesh.frustumCulled = false;
-  scene.add(planeMesh);
+  controlBuffer = device.createBuffer({
+    size: controlPointsArray.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  infoBuffer = device.createBuffer({
+    size: infoArray.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  stateBuffer = device.createBuffer({
+    size: stateArray.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  matricesBuffer = device.createBuffer({
+    size: planeCount * 64,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_DST |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.INDIRECT,
+  });
 
-  for (let i = 0; i < targetCount; i += 1) {
-    const rand = mulberry32(i * 7919 + 1);
+  device.queue.writeBuffer(controlBuffer, 0, controlPointsArray);
+  device.queue.writeBuffer(infoBuffer, 0, infoArray);
+  device.queue.writeBuffer(stateBuffer, 0, stateArray);
 
-    const controlPoints = createCurveControlPoints(rand);
-    const curve = new Curve(scene, { controlPoints });
-    curve.create();
-    curves.push(curve);
+  const identityMatrices = new Float32Array(planeCount * 16);
+  for (let i = 0; i < planeCount; i += 1) {
+    const offset = i * 16;
+    identityMatrices[offset + 0] = 1;
+    identityMatrices[offset + 5] = 1;
+    identityMatrices[offset + 10] = 1;
+    identityMatrices[offset + 15] = 1;
+    identityMatrices[offset + 12] = (i % 10) * 200 - 1000;
+    identityMatrices[offset + 13] = ((i / 10) | 0) * 200 - 1000;
+  }
+  device.queue.writeBuffer(matricesBuffer, 0, identityMatrices);
 
-    const speed = 0.04 + rand() * 0.08;
+  if (curveVertices.length > 0) {
+    const curveData = new Float32Array(curveVertices);
+    curveVertexBuffer = device.createBuffer({
+      size: curveData.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(curveVertexBuffer, 0, curveData);
+  } else {
+    curveVertexBuffer = null;
+    curveDraws = [];
+  }
 
-    planeEntries.push({
-      curve,
-      timeOffset: rand(),
-      speed,
-      svgWidth,
-      svgHeight,
+  if (!computeUniformBuffer) {
+    computeUniformBuffer = device.createBuffer({
+      size: computeUniformArray.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
 
-  planeMesh.instanceMatrix.needsUpdate = true;
+  computeBindGroup = device.createBindGroup({
+    layout: computePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: controlBuffer } },
+      { binding: 1, resource: { buffer: infoBuffer } },
+      { binding: 2, resource: { buffer: stateBuffer } },
+      { binding: 3, resource: { buffer: matricesBuffer } },
+      { binding: 4, resource: { buffer: computeUniformBuffer } },
+    ],
+  });
+
+  const renderInstanceLayout = renderPipeline.getBindGroupLayout(1);
+  renderInstanceBindGroup = device.createBindGroup({
+    layout: renderInstanceLayout,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: matricesBuffer,
+        },
+      },
+    ],
+  });
+
+  const lineSceneLayout = linePipeline.getBindGroupLayout(0);
+  lineSceneBindGroup = device.createBindGroup({
+    layout: lineSceneLayout,
+    entries: [
+      {
+        binding: 0,
+        resource: {
+          buffer: renderUniformBuffer,
+        },
+      },
+    ],
+  });
 }
 
-function updatePlanes(delta) {
-  if (!planeMesh) return;
+function frame(now) {
+  const delta = Math.min((now - previousTime) / 1000, 1 / 20);
+  previousTime = now;
 
-  for (let i = 0; i < planeEntries.length; i += 1) {
-    const entry = planeEntries[i];
-    entry.timeOffset = (entry.timeOffset + delta * entry.speed) % 1;
+  controls.update();
+  updateSceneUniforms();
+  stepSimulation(delta);
 
-    entry.curve.getPointAt(entry.timeOffset, tempPosition);
-    entry.curve.getTangentAt(entry.timeOffset, tempTangent).normalize();
+  requestAnimationFrame(frame);
+}
 
-    tempRight.crossVectors(tempTangent, WORLD_UP);
-    if (tempRight.lengthSq() < 1e-6) {
-      tempRight.crossVectors(FALLBACK_AXIS, tempTangent);
+function updateSceneUniforms() {
+  camera.updateMatrixWorld(true);
+  tempMatrix.multiplyMatrices(
+    camera.projectionMatrix,
+    camera.matrixWorldInverse,
+  );
+  renderUniformArray.set(tempMatrix.elements);
+  device.queue.writeBuffer(renderUniformBuffer, 0, renderUniformArray);
+}
+
+function stepSimulation(delta) {
+  if (!device || planeCount === 0) return;
+
+  computeUniformArray[0] = delta;
+  computeUniformArray[1] = params.planeScale;
+  computeUniformArray[2] = planeCount;
+  computeUniformArray[3] = 0;
+  device.queue.writeBuffer(computeUniformBuffer, 0, computeUniformArray);
+
+  const encoder = device.createCommandEncoder();
+
+  const computePass = encoder.beginComputePass();
+  computePass.setPipeline(computePipeline);
+  computePass.setBindGroup(0, computeBindGroup);
+  computePass.dispatchWorkgroups(workgroupCount);
+  computePass.end();
+
+  const colorTexture = context.getCurrentTexture();
+  const colorView = colorTexture.createView();
+
+  const renderPassDescriptor = {
+    colorAttachments: [
+      {
+        view: colorView,
+        clearValue: { r: 0.93, g: 0.93, b: 0.94, a: 1.0 },
+        loadOp: "clear",
+        storeOp: "store",
+      },
+    ],
+    depthStencilAttachment: {
+      view: depthTextureView,
+      depthClearValue: 1.0,
+      depthLoadOp: "clear",
+      depthStoreOp: "store",
+    },
+  };
+
+  const renderPass = encoder.beginRenderPass(renderPassDescriptor);
+  renderPass.setPipeline(renderPipeline);
+  renderPass.setBindGroup(0, renderSceneBindGroup);
+  renderPass.setBindGroup(1, renderInstanceBindGroup);
+  renderPass.setVertexBuffer(0, planeVertexBuffer);
+  renderPass.draw(planeVertexCount, planeCount, 0, 0);
+
+  if (curveVertexBuffer && curveDraws.length > 0) {
+    renderPass.setPipeline(linePipeline);
+    renderPass.setBindGroup(0, lineSceneBindGroup);
+    renderPass.setVertexBuffer(0, curveVertexBuffer);
+    for (const draw of curveDraws) {
+      renderPass.draw(draw.count, 1, draw.offset, 0);
     }
-    tempRight.normalize();
-    tempUp.crossVectors(tempRight, tempTangent).normalize();
-    tempForwardDir.copy(tempTangent).negate();
-
-    const scale = params.planeScale;
-
-    tempHorizontal
-      .copy(tempRight)
-      .multiplyScalar((-entry.svgWidth / 2) * scale);
-    tempForward.copy(tempTangent).multiplyScalar((entry.svgHeight / 2) * scale);
-
-    tempFinalPosition.copy(tempPosition).add(tempHorizontal).add(tempForward);
-
-    tempMatrix.makeBasis(tempRight, tempUp, tempForwardDir);
-    tempMatrix.scale(scaleVector);
-    tempMatrix.setPosition(tempFinalPosition);
-
-    planeMesh.setMatrixAt(i, tempMatrix);
   }
 
-  planeMesh.instanceMatrix.needsUpdate = true;
+  renderPass.end();
+
+  device.queue.submit([encoder.finish()]);
 }
 
 function mulberry32(seed) {
@@ -229,18 +544,163 @@ function createCurveControlPoints(rand) {
   });
 }
 
-window.addEventListener("resize", () => {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-});
+function computeShaderWGSL() {
+  return /* wgsl */ `
+struct ControlPoints {
+  data : array<vec4<f32>>,
+};
 
-initializeScene().catch((error) => {
-  console.error("Failed to initialize scene:", error);
-});
-function updateScaleVector() {
-  const s = params.planeScale;
-  scaleVector.set(s, s, s);
+struct PlaneInfo {
+  data : array<vec4<f32>>,
+};
+
+struct PlaneState {
+  data : array<vec4<f32>>,
+};
+
+struct OutputMatrices {
+  data : array<mat4x4<f32>>,
+};
+
+struct Uniforms {
+  delta: f32,
+  scale: f32,
+  count: f32,
+  _pad: f32,
+};
+
+@group(0) @binding(0) var<storage, read> controlPoints : ControlPoints;
+@group(0) @binding(1) var<storage, read> planeInfo : PlaneInfo;
+@group(0) @binding(2) var<storage, read_write> planeState : PlaneState;
+@group(0) @binding(3) var<storage, read_write> outputMatrices : OutputMatrices;
+@group(0) @binding(4) var<uniform> uniforms : Uniforms;
+
+fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
+  let t2 = t * t;
+  let t3 = t2 * t;
+  return 0.5 * (
+    (2.0 * p1) +
+    (-p0 + p2) * t +
+    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+  );
 }
+
+fn catmullRomTangent(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
+  let t2 = t * t;
+  return 0.5 * (
+    (-p0 + p2) +
+    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * (2.0 * t) +
+    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * (3.0 * t2)
+  );
+}
+
+@compute @workgroup_size(${WORKGROUP_SIZE})
+fn main(@builtin(global_invocation_id) id : vec3<u32>) {
+  let index = id.x;
+  let count = u32(uniforms.count + 0.5);
+  if (index >= count) {
+    return;
+  }
+
+  let base = index * 4u;
+  let p0 = controlPoints.data[base + 0u].xyz;
+  let p1 = controlPoints.data[base + 1u].xyz;
+  let p2 = controlPoints.data[base + 2u].xyz;
+  let p3 = controlPoints.data[base + 3u].xyz;
+
+  var state = planeState.data[index];
+  let info = planeInfo.data[index];
+
+  let updatedTime = fract(state.x + info.z * uniforms.delta);
+  state.x = updatedTime;
+  planeState.data[index] = state;
+
+  let point = catmullRom(p0, p1, p2, p3, updatedTime);
+  var tangent = normalize(catmullRomTangent(p0, p1, p2, p3, updatedTime));
+
+  var right = cross(tangent, vec3<f32>(0.0, 1.0, 0.0));
+  if (dot(right, right) < 1e-6) {
+    right = cross(vec3<f32>(0.0, 0.0, 1.0), tangent);
+  }
+  right = normalize(right);
+  var up = normalize(cross(right, tangent));
+  let forward = -tangent;
+
+  let halfWidth = info.x * 0.5 * uniforms.scale;
+  let halfHeight = info.y * 0.5 * uniforms.scale;
+  let position = point + (-right * halfWidth) + (tangent * halfHeight);
+
+  let scale = uniforms.scale;
+  let col0 = vec4<f32>(right * scale, 0.0);
+  let col1 = vec4<f32>(up * scale, 0.0);
+  let col2 = vec4<f32>(forward * scale, 0.0);
+  let col3 = vec4<f32>(position, 1.0);
+
+  outputMatrices.data[index] = mat4x4<f32>(col0, col1, col2, col3);
+}
+`;
+}
+
+function renderShaderWGSL() {
+  return /* wgsl */ `
+struct SceneUniforms {
+  viewProjection : mat4x4<f32>,
+};
+
+struct InstanceMatrices {
+  data : array<mat4x4<f32>>,
+};
+
+@group(0) @binding(0) var<uniform> scene : SceneUniforms;
+@group(1) @binding(0) var<storage, read> instanceMatrices : InstanceMatrices;
+
+struct VertexOutput {
+  @builtin(position) position : vec4<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) position : vec3<f32>, @builtin(instance_index) instanceIndex : u32) -> VertexOutput {
+  var output : VertexOutput;
+  let model = instanceMatrices.data[instanceIndex];
+  let worldPosition = model * vec4<f32>(position, 1.0);
+  output.position = scene.viewProjection * worldPosition;
+  return output;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+  return vec4<f32>(0.27, 0.53, 1.0, 1.0);
+}
+`;
+}
+
+function lineShaderWGSL() {
+  return /* wgsl */ `
+struct SceneUniforms {
+  viewProjection : mat4x4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> scene : SceneUniforms;
+
+struct VertexOutput {
+  @builtin(position) position : vec4<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) position : vec3<f32>) -> VertexOutput {
+  var output : VertexOutput;
+  output.position = scene.viewProjection * vec4<f32>(position, 1.0);
+  return output;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+  return vec4<f32>(0.25, 0.25, 0.25, 1.0);
+}
+`;
+}
+
+initialize().catch((error) => {
+  console.error("Failed to initialize WebGPU scene:", error);
+});
