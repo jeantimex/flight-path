@@ -27,7 +27,7 @@ export class SVGPlane extends Plane {
                         }
                     }
 
-                    const material = new THREE.MeshLambertMaterial({
+                    const material = new THREE.MeshBasicMaterial({
                         color: color,
                         side: THREE.DoubleSide
                     })
