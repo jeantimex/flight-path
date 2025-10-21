@@ -21,12 +21,18 @@ export class Curve {
     return this.curve;
   }
 
-  getPointAt(t) {
-    return this.curve ? this.curve.getPointAt(t) : new THREE.Vector3();
+  getPointAt(t, target = new THREE.Vector3()) {
+    if (!this.curve) {
+      return target.set(0, 0, 0);
+    }
+    return this.curve.getPointAt(t, target);
   }
 
-  getTangentAt(t) {
-    return this.curve ? this.curve.getTangentAt(t) : new THREE.Vector3(0, 0, 1);
+  getTangentAt(t, target = new THREE.Vector3()) {
+    if (!this.curve) {
+      return target.set(0, 0, 1);
+    }
+    return this.curve.getTangentAt(t, target);
   }
 
   getCurve() {
