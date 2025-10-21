@@ -74,6 +74,17 @@ controls.screenSpacePanning = false;
 controls.minDistance = 100;
 controls.maxDistance = 20000;
 controls.maxPolarAngle = Math.PI;
+controls.enablePan = false;
+controls.enableZoom = true;
+controls.enableRotate = true;
+controls.mouseButtons = {
+  LEFT: THREE.MOUSE.ROTATE,
+  MIDDLE: THREE.MOUSE.DOLLY,
+};
+controls.touches = {
+  ONE: THREE.TOUCH.ROTATE,
+  TWO: THREE.TOUCH.DOLLY_PAN,
+};
 
 let previousTime = performance.now();
 const tempMatrix = new THREE.Matrix4();
@@ -271,7 +282,7 @@ function setupGUI() {
 
   gui = new GUI();
   gui
-    .add(params, "planeCount", 10, 30000, 10)
+    .add(params, "planeCount", 10, 1000000, 10)
     .name("Plane Count")
     .onFinishChange((value) => {
       rebuildPlanes(Math.max(1, Math.floor(value)));
