@@ -38,12 +38,12 @@ struct FlightState {
 
 @group(0) @binding(2) var<storage, read> flightStates: array<FlightState>;
 
-// Output: Line vertices (position + color)
+// Output: Line vertices (position + color + distance)
 struct LineVertex {
   position: vec3<f32>,
-  _pad0: f32,
+  distance: f32,  // Cumulative distance along curve
   color: vec3<f32>,
-  _pad1: f32,
+  _pad0: f32,
 };
 
 @group(0) @binding(3) var<storage, read_write> lineVertices: array<LineVertex>;
@@ -101,11 +101,27 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Evaluate Catmull-Rom curve at t
   let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, t);
 
+  // Approximate arc length for distance calculation
+  // Sample curve at regular intervals to estimate total length
+  var totalLength = 0.0;
+  let numSamples = 10u;
+  var prevPos = cp.p1; // Start at p1 (actual curve start)
+  for (var i = 1u; i <= numSamples; i++) {
+    let sampleT = f32(i) / f32(numSamples);
+    let samplePos = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, sampleT);
+    totalLength += length(samplePos - prevPos);
+    prevPos = samplePos;
+  }
+
+  // Distance for this vertex = t * totalLength
+  let distance = t * totalLength;
+
   // Create gradient color (fade at endpoints)
   let gradientFactor = 1.0 - abs(t - 0.5) * 2.0; // 0 at ends, 1 at center
   let gradientColor = color * (0.5 + 0.5 * gradientFactor);
 
   // Write vertex
   lineVertices[vertexIndex].position = position;
+  lineVertices[vertexIndex].distance = distance;
   lineVertices[vertexIndex].color = gradientColor;
 }

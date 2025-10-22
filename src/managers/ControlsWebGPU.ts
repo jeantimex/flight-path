@@ -267,22 +267,27 @@ export class ControlsWebGPU {
   private setupFlightPathControls(): void {
     const pathFolder = this.gui.addFolder('Flight Path');
 
-    // Note: Dash Size not implemented yet
-    const dashSizeCtrl = pathFolder
+    // Dash Size (0-100)
+    pathFolder
       .add(this.params, 'dashSize', 0, 100, 1)
       .name('Dash Size')
-      .listen();
-    dashSizeCtrl.domElement.style.pointerEvents = 'none';
-    dashSizeCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.curves) {
+          this.curves.setDashPattern(value, this.params.gapSize);
+        }
+      });
 
-    // Note: Gap Size not implemented yet
-    const gapSizeCtrl = pathFolder
+    // Gap Size (0-100)
+    pathFolder
       .add(this.params, 'gapSize', 0, 100, 1)
       .name('Gap Size')
-      .listen();
-    gapSizeCtrl.domElement.style.pointerEvents = 'none';
-    gapSizeCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.curves) {
+          this.curves.setDashPattern(this.params.dashSize, value);
+        }
+      });
 
+    // Hide Path toggle
     pathFolder
       .add(this.params, 'hidePath')
       .name('Hide Path')

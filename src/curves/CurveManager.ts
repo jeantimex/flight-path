@@ -34,6 +34,10 @@ export class CurveManager {
   // Visibility
   private curvesVisible: boolean = true;
 
+  // Dash parameters
+  private dashSize: number = 0; // 0 = solid line
+  private gapSize: number = 0;
+
   // Reusable uniform data
   private computeUniformData: Uint32Array;
   private renderUniformData: Float32Array;
@@ -46,9 +50,11 @@ export class CurveManager {
     this.computeUniformData = new Uint32Array(4); // segmentsPerCurve, totalFlights, pad, pad
     this.computeUniformData[0] = this.segmentsPerCurve;
 
-    this.renderUniformData = new Float32Array(20); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + pad (2)
+    this.renderUniformData = new Float32Array(20); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + dashSize (1) + gapSize (1)
     this.renderUniformData[16] = 1.0; // curvesVisible
     this.renderUniformData[17] = 1.0; // lineWidth
+    this.renderUniformData[18] = 0.0; // dashSize (0 = solid)
+    this.renderUniformData[19] = 0.0; // gapSize
   }
 
   public setFlightManager(flightManager: FlightManager): void {
@@ -194,10 +200,11 @@ export class CurveManager {
         entryPoint: 'vertexMain',
         buffers: [
           {
-            arrayStride: 32, // 8 floats × 4 bytes
+            arrayStride: 32, // 8 floats × 4 bytes (position + distance + color + pad)
             attributes: [
               { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
-              { shaderLocation: 1, offset: 16, format: 'float32x3' }, // color (skip pad at offset 12)
+              { shaderLocation: 1, offset: 12, format: 'float32' },   // distance (after position pad)
+              { shaderLocation: 2, offset: 16, format: 'float32x3' }, // color
             ],
           },
         ],
@@ -290,6 +297,8 @@ export class CurveManager {
 
     // Update uniforms
     this.renderUniformData.set(camera.viewProjectionMatrix, 0);
+    this.renderUniformData[18] = this.dashSize;
+    this.renderUniformData[19] = this.gapSize;
     this.device.queue.writeBuffer(this.renderUniformBuffer!, 0, this.renderUniformData.buffer);
 
     // Render curves
@@ -311,6 +320,11 @@ export class CurveManager {
   public setCurvesVisible(visible: boolean): void {
     this.curvesVisible = visible;
     this.renderUniformData[16] = visible ? 1.0 : 0.0;
+  }
+
+  public setDashPattern(dashSize: number, gapSize: number): void {
+    this.dashSize = Math.max(0, dashSize);
+    this.gapSize = Math.max(0, gapSize);
   }
 
   public destroy(): void {
