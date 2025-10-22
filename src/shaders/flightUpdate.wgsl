@@ -119,9 +119,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     return;
   }
 
-  // Temporal update optimization: Only update 1/8 of flights each frame
-  // This gives 8x speedup for compute shader (125K updates/frame instead of 1M)
-  if (flightIndex % 8u != uniforms.frameNumber % 8u) {
+  // Temporal update optimization: Only update 1/4 of flights each frame
+  // This gives 4x speedup for compute shader (250K updates/frame instead of 1M)
+  // Reduced from 1/8 to 1/4 for smoother animation now that merged shader is faster
+  if (flightIndex % 4u != uniforms.frameNumber % 4u) {
     return; // Skip this flight this frame
   }
 
