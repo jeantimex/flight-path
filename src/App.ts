@@ -12,12 +12,17 @@ import {
 } from './core/WebGPUContext.ts';
 import { PerspectiveCamera } from './core/PerspectiveCamera.ts';
 import { OrbitControls } from './core/OrbitControls.ts';
+import { EarthWebGPU } from './space/EarthWebGPU.ts';
+
+const EARTH_RADIUS = 3000;
 
 export class WebGPUApp {
   private canvas: HTMLCanvasElement;
   private gpuContext: WebGPUContext | null = null;
   private camera: PerspectiveCamera | null = null;
   private controls: OrbitControls | null = null;
+  private earth: EarthWebGPU | null = null;
+  private earthTextureLoaded = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
 
@@ -75,6 +80,20 @@ export class WebGPUApp {
       });
 
       console.log('✅ Camera and controls initialized');
+
+      // Initialize Earth
+      this.earth = new EarthWebGPU(this.gpuContext.device, {
+        radius: EARTH_RADIUS,
+        onTextureLoaded: () => {
+          this.earthTextureLoaded = true;
+          // Create pipeline after texture loads
+          if (this.earth && this.gpuContext) {
+            this.earth.createPipeline(this.gpuContext.presentationFormat);
+          }
+        },
+      });
+
+      console.log('✅ Earth initialized');
 
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
@@ -151,10 +170,14 @@ export class WebGPUApp {
 
     const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
 
-    // TODO: Add rendering pipelines here
-    // - Stars
-    // - Earth
-    // - Atmosphere
+    // Render Earth
+    if (this.earth) {
+      this.earth.render(renderPass, this.camera);
+    }
+
+    // TODO: Add more rendering pipelines here
+    // - Stars (background)
+    // - Atmosphere (transparent)
     // - Compute pass for curves
     // - Curves
     // - Planes
@@ -173,6 +196,10 @@ export class WebGPUApp {
 
     if (this.controls) {
       this.controls.dispose();
+    }
+
+    if (this.earth) {
+      this.earth.destroy();
     }
 
     if (this.gpuContext) {
