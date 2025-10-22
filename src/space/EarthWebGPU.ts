@@ -45,8 +45,8 @@ export class EarthWebGPU {
   // Day/Night settings
   private dayNightEnabled: boolean = true;
   private simulatedTime: number = 12.0; // UTC hours (0-24)
-  private dayBrightness: number = 70; // Percentage (0-100)
-  private nightBrightness: number = 40; // Percentage (0-100)
+  private dayBrightness: number = 80; // Percentage (0-100)
+  private nightBrightness: number = 15; // Percentage (0-100)
 
   // Reusable uniform data buffer (avoids allocation per frame)
   private uniformData: Float32Array;
@@ -105,15 +105,22 @@ export class EarthWebGPU {
     while (normalizedLongitude > 180) normalizedLongitude -= 360;
     while (normalizedLongitude < -180) normalizedLongitude += 360;
 
-    // Convert lat/lng to 3D direction (normalized)
-    const lat = declination * (Math.PI / 180);
-    const lng = normalizedLongitude * (Math.PI / 180);
+    // Convert lat/lng to 3D direction using same logic as main branch
+    // (matches latLngToVector3 from Utils.ts)
+    const phi = ((90 - declination) * Math.PI) / 180;
+    const theta = ((-normalizedLongitude + 180) * Math.PI) / 180;
 
-    const x = Math.cos(lat) * Math.cos(lng);
-    const y = Math.cos(lat) * Math.sin(lng);
-    const z = Math.sin(lat);
+    // Standard spherical to cartesian
+    let x = Math.sin(phi) * Math.cos(theta);
+    const y = Math.cos(phi);
+    let z = Math.sin(phi) * Math.sin(theta);
 
-    const sunDirection = vec3.fromValues(x, y, z);
+    // Apply coordinate transformation for Earth's -90° Y rotation
+    // Rotation matrix for +90° around Y-axis to compensate
+    const rotatedX = z;
+    const rotatedZ = -x;
+
+    const sunDirection = vec3.fromValues(rotatedX, y, rotatedZ);
     vec3.normalize(sunDirection, sunDirection);
 
     return sunDirection;
@@ -291,10 +298,10 @@ export class EarthWebGPU {
     this.uniformData[57] = this.dayNightEnabled ? 1.0 : 0.0;
 
     // dayBrightness (1 float, convert percentage to 0-1)
-    this.uniformData[58] = this.dayBrightness / 100.0;
+    this.uniformData[58] = this.dayBrightness / 3.0 / 100.0;
 
     // nightBrightness (1 float, convert percentage to 0-1)
-    this.uniformData[59] = this.nightBrightness / 100.0;
+    this.uniformData[59] = this.nightBrightness / 3.0 / 100.0;
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
 

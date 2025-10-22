@@ -324,10 +324,10 @@ export class WebGPUApp {
       const finalDistance = EARTH_RADIUS * 2.06; // ~6180 (optimized Earth size at end)
       const startDistance = finalDistance * 1.25; // ~7725 (optimized Earth size at start)
 
-      // Position camera to match main branch initial position (lat: 12.05°, lng: -26.22°)
+      // Position camera to match main branch initial position (lat: 12.05°, lng: -17.55°)
       // Convert lat/lng to camera position (reverse of updateCoordinateDisplay logic)
       const lat = 12.05;
-      const lng = -26.22;
+      const lng = -17.55;
       const phi = (90 - lat) * Math.PI / 180; // 77.95° in radians
       const theta = lng * Math.PI / 180;
 

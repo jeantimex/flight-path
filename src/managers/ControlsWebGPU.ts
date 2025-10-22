@@ -75,8 +75,8 @@ export class ControlsWebGPU {
       realTimeSun: true,
       simulatedTime: 12.0,
       timeDisplay: '12:00 UTC',
-      nightBrightness: 8,
-      dayBrightness: 50,
+      nightBrightness: 15,
+      dayBrightness: 80,
 
       // Flight Controls
       numFlights: 1000,
