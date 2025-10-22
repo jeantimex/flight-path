@@ -25,12 +25,14 @@
   },
   "homepage": "https://jeantimex.github.io/flight-path/",
   "devDependencies": {
+    "@webgpu/types": "^0.1.65",
     "gh-pages": "^6.3.0",
     "prettier": "^3.6.2",
     "vite": "^6.3.6"
   },
   "dependencies": {
     "dat.gui": "^0.7.9",
+    "gl-matrix": "^3.4.4",
     "stats.js": "^0.17.0",
     "three": "^0.180.0"
   }

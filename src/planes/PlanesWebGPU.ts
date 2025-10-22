@@ -1,0 +1,568 @@
+/**
+ * Planes Renderer (WebGPU)
+ * Instanced billboard rendering for 1M planes
+ * Reads position/direction from FlightManager buffers
+ */
+
+import { mat4, vec3 } from 'gl-matrix';
+import type { PerspectiveCamera } from '../core/PerspectiveCamera.ts';
+import type { FlightManager } from '../flights/FlightManager.ts';
+import { loadTexture } from '../core/TextureLoader.ts';
+import planesShader from '../shaders/planes.wgsl?raw';
+import visibilityCullShader from '../shaders/visibilityCull.wgsl?raw';
+import clearCounterShader from '../shaders/clearCounter.wgsl?raw';
+
+export interface PlanesConfig {
+  baseSize?: number;
+  texturePath?: string | null;
+}
+
+export interface AtlasInfo {
+  texture: GPUTexture;
+  columns: number;
+  rows: number;
+  count: number;
+}
+
+export class PlanesWebGPU {
+  private device: GPUDevice;
+  private baseSize: number;
+
+  // Pipeline
+  private pipeline: GPURenderPipeline | null = null;
+  private bindGroup: GPUBindGroup | null = null;
+  private uniformBuffer: GPUBuffer | null = null;
+
+  // Texture
+  private texture: GPUTexture | null = null;
+  private sampler: GPUSampler | null = null;
+  private useTexture: boolean = false;
+
+  // Atlas info
+  private atlasColumns: number = 1;
+  private atlasRows: number = 1;
+
+  // Flight manager reference
+  private flightManager: FlightManager | null = null;
+
+  // Visibility
+  private planesVisible: boolean = true;
+
+  // Elevation offset
+  private elevationOffset: number = 0;
+
+  // Plane color override
+  private planeColorOverride: [number, number, number] = [1.0, 0.4, 0.4]; // #ff6666
+  private useColorOverride: number = 0.0; // Disabled by default (use random colors)
+
+  // Plane style
+  private planeStyle: 'SVG' | 'Pane' = 'SVG';
+
+  // Reusable uniform data
+  private uniformData: Float32Array;
+
+  // Dummy texture (1x1 white pixel for when no texture loaded)
+  private dummyTexture: GPUTexture | null = null;
+
+  // Indirect rendering (visibility culling)
+  private visibilityPipeline: GPUComputePipeline | null = null;
+  private visibilityBindGroup: GPUBindGroup | null = null;
+  private visibleIndicesBuffer: GPUBuffer | null = null;
+  private drawArgsBuffer: GPUBuffer | null = null;
+  private atomicCounterBuffer: GPUBuffer | null = null;
+  private visibilityUniformBuffer: GPUBuffer | null = null;
+
+  // Clear counter pipeline (resets atomic counter without CPU-GPU sync)
+  private clearCounterPipeline: GPUComputePipeline | null = null;
+  private clearCounterBindGroup: GPUBindGroup | null = null;
+
+  // Feature flags
+  private useIndirectRendering: boolean = true; // Enable GPU-driven draw calls
+
+  constructor(device: GPUDevice, config: PlanesConfig = {}) {
+    this.device = device;
+    this.baseSize = config.baseSize ?? 10;
+
+    // Allocate uniform data buffer (reused every frame)
+    // Uniform buffer alignment: vec3 requires 16-byte alignment
+    // viewProjectionMatrix (64) + cameraRight (16) + cameraUp (16) + baseSize (4) + useTexture (4) + planesVisible (4) + atlasColumns (4) + atlasRows (4) + elevationOffset (4) + pad (12) + planeColorOverride (16 with padding) + useColorOverride (4) + pad (12) = 160 bytes
+    this.uniformData = new Float32Array(40);
+    this.uniformData[24] = this.baseSize;
+    this.uniformData[25] = 0.0; // useTexture
+    this.uniformData[26] = 1.0; // planesVisible
+    this.uniformData[27] = 1.0; // atlasColumns
+    this.uniformData[28] = 1.0; // atlasRows
+    this.uniformData[29] = 0.0; // elevationOffset
+    // Padding slots 30, 31, 32 for vec3 alignment
+    this.uniformData[32] = 1.0; // planeColorOverride.r (at offset 128)
+    this.uniformData[33] = 0.4; // planeColorOverride.g (at offset 132)
+    this.uniformData[34] = 0.4; // planeColorOverride.b (at offset 136)
+    this.uniformData[35] = 0.0; // useColorOverride (at offset 140) - disabled by default (random colors)
+
+    // Create dummy texture
+    this.createDummyTexture();
+
+    // Load texture if provided
+    if (config.texturePath) {
+      this.loadPlaneTexture(config.texturePath);
+    }
+  }
+
+  private createDummyTexture(): void {
+    // Create 1x1 white texture
+    this.dummyTexture = this.device.createTexture({
+      size: { width: 1, height: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+
+    // Upload white pixel
+    const whitePixel = new Uint8Array([255, 255, 255, 255]);
+    this.device.queue.writeTexture(
+      { texture: this.dummyTexture },
+      whitePixel,
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 },
+    );
+  }
+
+  public async loadPlaneTexture(path: string): Promise<void> {
+    try {
+      const loadedTexture = await loadTexture(this.device, path, { flipY: true });
+      this.texture = loadedTexture.texture;
+      this.useTexture = true;
+      // Only enable texture if in SVG mode (respect current plane style)
+      this.uniformData[25] = this.planeStyle === 'SVG' ? 1.0 : 0.0;
+
+      console.log(`✅ Plane texture loaded: ${path}`);
+
+      // Recreate bind group with new texture
+      if (this.flightManager) {
+        this.createPipeline();
+      }
+    } catch (error) {
+      console.error('Failed to load plane texture:', error);
+      this.texture = null;
+      this.useTexture = false;
+      this.uniformData[25] = 0.0;
+    }
+  }
+
+  public setAtlas(atlasInfo: AtlasInfo): void {
+    // Destroy old texture if exists (avoid memory leak)
+    if (this.texture && this.texture !== this.dummyTexture) {
+      this.texture.destroy();
+    }
+
+    this.texture = atlasInfo.texture;
+    this.atlasColumns = atlasInfo.columns;
+    this.atlasRows = atlasInfo.rows;
+    this.useTexture = true;
+
+    // Update uniforms
+    // Only enable texture if in SVG mode (respect current plane style)
+    this.uniformData[25] = this.planeStyle === 'SVG' ? 1.0 : 0.0;
+    this.uniformData[27] = atlasInfo.columns;
+    this.uniformData[28] = atlasInfo.rows;
+
+    console.log(`✅ Plane atlas set (${atlasInfo.columns}x${atlasInfo.rows}, ${atlasInfo.count} tiles)`);
+
+    // Recreate bind group with new texture
+    if (this.flightManager) {
+      this.createPipeline();
+    }
+  }
+
+  public setFlightManager(flightManager: FlightManager): void {
+    this.flightManager = flightManager;
+  }
+
+  public createPipeline(presentationFormat: GPUTextureFormat = 'bgra8unorm'): void {
+    if (!this.flightManager) {
+      console.warn('Cannot create pipeline: FlightManager not set');
+      return;
+    }
+
+    // Create shader module
+    const shaderModule = this.device.createShaderModule({
+      code: planesShader,
+    });
+
+    // Create uniform buffer
+    this.uniformBuffer = this.device.createBuffer({
+      size: 160, // 40 floats * 4 bytes
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Create sampler
+    this.sampler = this.device.createSampler({
+      magFilter: 'linear',
+      minFilter: 'linear',
+      mipmapFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+
+    // Create bind group layout
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: 'filtering' },
+        },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'float' },
+        },
+      ],
+    });
+
+    // Create temporary visible indices buffer (will be recreated in createVisibilityPipeline)
+    const maxFlights = this.flightManager.getFlightCount();
+    if (!this.visibleIndicesBuffer) {
+      this.visibleIndicesBuffer = this.device.createBuffer({
+        size: maxFlights * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+    }
+
+    // Create bind group
+    const textureView = this.texture
+      ? this.texture.createView()
+      : this.dummyTexture!.createView();
+
+    this.bindGroup = this.device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.flightManager.getOutputBuffer()! } },
+        { binding: 2, resource: { buffer: this.flightManager.getFlightStateBuffer()! } },
+        { binding: 3, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 4, resource: this.sampler },
+        { binding: 5, resource: textureView },
+      ],
+    });
+
+    // Create pipeline
+    this.pipeline = this.device.createRenderPipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout],
+      }),
+      vertex: {
+        module: shaderModule,
+        entryPoint: 'vertexMain',
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: 'fragmentMain',
+        targets: [
+          {
+            format: presentationFormat,
+            blend: {
+              color: {
+                srcFactor: 'src-alpha',
+                dstFactor: 'one-minus-src-alpha',
+                operation: 'add',
+              },
+              alpha: {
+                srcFactor: 'one',
+                dstFactor: 'one-minus-src-alpha',
+                operation: 'add',
+              },
+            },
+          },
+        ],
+      },
+      primitive: {
+        topology: 'triangle-strip',
+      },
+      depthStencil: {
+        format: 'depth24plus',
+        depthWriteEnabled: true,
+        depthCompare: 'less',
+      },
+    });
+
+    console.log('✅ Planes pipeline created');
+
+    // Create visibility culling pipeline for indirect rendering
+    this.createVisibilityPipeline();
+  }
+
+  private createVisibilityPipeline(): void {
+    if (!this.flightManager || !this.visibleIndicesBuffer) {
+      return;
+    }
+
+    const maxFlights = this.flightManager.getFlightCount();
+
+    // Create buffers for indirect rendering
+    // (visibleIndicesBuffer already created in createPipeline)
+
+    // Draw args buffer for drawIndirect
+    // Layout: vertexCount (4), instanceCount (dynamic), firstVertex (0), firstInstance (0)
+    this.drawArgsBuffer = this.device.createBuffer({
+      size: 16, // 4 × u32
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Initialize draw args (constant values)
+    const drawArgsInit = new Uint32Array([
+      4, // vertexCount (quad)
+      0, // instanceCount (will be written by compute shader)
+      0, // firstVertex
+      0, // firstInstance
+    ]);
+    this.device.queue.writeBuffer(this.drawArgsBuffer, 0, drawArgsInit);
+
+    // Atomic counter buffer (separate for alignment requirements)
+    this.atomicCounterBuffer = this.device.createBuffer({
+      size: 256, // Minimum storage buffer size for alignment
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    const atomicInit = new Uint32Array(64); // 256 bytes / 4 bytes per u32
+    atomicInit[0] = 0; // Initialize counter to 0
+    this.device.queue.writeBuffer(this.atomicCounterBuffer, 0, atomicInit);
+
+    // Visibility uniform buffer
+    this.visibilityUniformBuffer = this.device.createBuffer({
+      size: 16, // totalFlights + 3 pads
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const visUniformData = new Uint32Array([maxFlights, 0, 0, 0]);
+    this.device.queue.writeBuffer(this.visibilityUniformBuffer, 0, visUniformData);
+
+    // Create visibility compute shader
+    const visShaderModule = this.device.createShaderModule({
+      code: visibilityCullShader,
+    });
+
+    // Create bind group layout for visibility culling
+    const visBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // flightStates
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // visibleIndices
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // atomic counter (embedded in drawArgs)
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // drawArgs
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },           // uniforms
+      ],
+    });
+
+    // Create bind group
+    this.visibilityBindGroup = this.device.createBindGroup({
+      layout: visBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.flightManager.getFlightStateBuffer()! } },
+        { binding: 1, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 2, resource: { buffer: this.atomicCounterBuffer } }, // atomic counter
+        { binding: 3, resource: { buffer: this.drawArgsBuffer } },
+        { binding: 4, resource: { buffer: this.visibilityUniformBuffer } },
+      ],
+    });
+
+    // Create compute pipeline
+    this.visibilityPipeline = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [visBindGroupLayout],
+      }),
+      compute: {
+        module: visShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    // Create clear counter pipeline (GPU-side counter reset to avoid CPU-GPU sync)
+    const clearShaderModule = this.device.createShaderModule({
+      code: clearCounterShader,
+    });
+
+    const clearBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // atomic counter
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // draw args
+      ],
+    });
+
+    this.clearCounterBindGroup = this.device.createBindGroup({
+      layout: clearBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.atomicCounterBuffer } },
+        { binding: 1, resource: { buffer: this.drawArgsBuffer } },
+      ],
+    });
+
+    this.clearCounterPipeline = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [clearBindGroupLayout],
+      }),
+      compute: {
+        module: clearShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    console.log('✅ Visibility culling pipeline created');
+  }
+
+  public cullVisibility(commandEncoder: GPUCommandEncoder): void {
+    if (!this.visibilityPipeline || !this.visibilityBindGroup || !this.drawArgsBuffer || !this.atomicCounterBuffer || !this.flightManager || !this.clearCounterPipeline || !this.clearCounterBindGroup) {
+      return;
+    }
+
+    // Clear atomic counter on GPU (avoids CPU-GPU sync bottleneck)
+    const clearPass = commandEncoder.beginComputePass();
+    clearPass.setPipeline(this.clearCounterPipeline);
+    clearPass.setBindGroup(0, this.clearCounterBindGroup);
+    clearPass.dispatchWorkgroups(1);
+    clearPass.end();
+
+    // Run visibility culling compute shader
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(this.visibilityPipeline);
+    computePass.setBindGroup(0, this.visibilityBindGroup);
+
+    // Dispatch workgroups for all flights (workgroup size = 256)
+    const visibleFlightCount = this.flightManager.getVisibleFlightCount();
+    const workgroupCount = Math.ceil(visibleFlightCount / 256);
+    const maxWorkgroupsPerDim = 65535;
+
+    if (workgroupCount <= maxWorkgroupsPerDim) {
+      computePass.dispatchWorkgroups(workgroupCount);
+    } else {
+      const x = maxWorkgroupsPerDim;
+      const y = Math.ceil(workgroupCount / maxWorkgroupsPerDim);
+      computePass.dispatchWorkgroups(x, y, 1);
+    }
+
+    computePass.end();
+
+    // Copy atomic counter result to draw args buffer (instanceCount field)
+    commandEncoder.copyBufferToBuffer(
+      this.atomicCounterBuffer,
+      0, // source offset
+      this.drawArgsBuffer,
+      4, // destination offset (instanceCount is at offset 4)
+      4, // size (one u32)
+    );
+  }
+
+  public render(renderPass: GPURenderPassEncoder, camera: PerspectiveCamera): void {
+    if (!this.pipeline || !this.bindGroup || !this.uniformBuffer || !this.flightManager) {
+      return; // Pipeline not ready
+    }
+
+    // Update uniforms (reusing pre-allocated buffer)
+    // viewProjectionMatrix (16 floats)
+    this.uniformData.set(camera.viewProjectionMatrix, 0);
+
+    // Camera right and up vectors (world space, from inverse view matrix)
+    // View matrix transforms world → view, so inverse transforms view → world
+    const invView = mat4.create();
+    mat4.invert(invView, camera.viewMatrix);
+
+    // Camera right vector (first column of inverse view matrix)
+    const cameraRight = vec3.create();
+    vec3.set(cameraRight, invView[0], invView[1], invView[2]);
+    this.uniformData.set(cameraRight, 16);
+
+    // Camera up vector (second column of inverse view matrix)
+    const cameraUp = vec3.create();
+    vec3.set(cameraUp, invView[4], invView[5], invView[6]);
+    this.uniformData.set(cameraUp, 20);
+
+    // baseSize, useTexture, planesVisible already set in constructor/methods
+
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
+
+    // Render instanced planes using indirect draw
+    renderPass.setPipeline(this.pipeline);
+    renderPass.setBindGroup(0, this.bindGroup);
+
+    if (this.useIndirectRendering && this.drawArgsBuffer) {
+      // Use indirect rendering (instance count determined by visibility culling)
+      renderPass.drawIndirect(this.drawArgsBuffer, 0);
+    } else {
+      // Direct rendering of all visible flights
+      renderPass.draw(4, this.flightManager.getVisibleFlightCount());
+    }
+  }
+
+  public setPlanesVisible(visible: boolean): void {
+    this.planesVisible = visible;
+    this.uniformData[26] = visible ? 1.0 : 0.0;
+  }
+
+  public setBaseSize(size: number): void {
+    this.baseSize = size;
+    this.uniformData[24] = size;
+  }
+
+  public setElevationOffset(offset: number): void {
+    this.elevationOffset = Math.max(0, Math.min(offset, 100));
+    this.uniformData[29] = this.elevationOffset;
+  }
+
+  public setPlaneColor(hex: string): void {
+    // Parse hex color (#RRGGBB)
+    const cleanHex = hex.replace('#', '');
+    const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
+    const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
+    const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
+
+    this.planeColorOverride = [r, g, b];
+    this.uniformData[32] = r; // Offset 128 (vec3 alignment)
+    this.uniformData[33] = g; // Offset 132
+    this.uniformData[34] = b; // Offset 136
+    // Note: useColorOverride is controlled by setUseColorOverride(), not here
+  }
+
+  public setPlaneStyle(style: 'SVG' | 'Pane'): void {
+    this.planeStyle = style;
+
+    if (style === 'Pane') {
+      // Pane mode: disable texture, use solid colors
+      this.uniformData[25] = 0.0; // useTexture = false
+    } else {
+      // SVG mode: enable texture
+      this.uniformData[25] = this.texture ? 1.0 : 0.0; // useTexture
+    }
+  }
+
+  public setUseColorOverride(useOverride: boolean): void {
+    this.useColorOverride = useOverride ? 1.0 : 0.0;
+    this.uniformData[35] = this.useColorOverride;
+  }
+
+  public destroy(): void {
+    this.uniformBuffer?.destroy();
+    this.texture?.destroy();
+    this.dummyTexture?.destroy();
+    this.visibleIndicesBuffer?.destroy();
+    this.drawArgsBuffer?.destroy();
+    this.atomicCounterBuffer?.destroy();
+    this.visibilityUniformBuffer?.destroy();
+  }
+}

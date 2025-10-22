@@ -1,4 +1,5 @@
 import "./style.css";
-import { App } from "./App.ts";
+import { WebGPUApp } from "./App.ts";
 
-new App();
+// Initialize WebGPU application
+new WebGPUApp();
