@@ -356,7 +356,8 @@ export class WebGPUApp {
 
     // Compute pass: Update flight positions
     if (this.flightManager) {
-      this.flightManager.update(commandEncoder, deltaTime);
+      const camPos = this.camera.position;
+      this.flightManager.update(commandEncoder, deltaTime, [camPos[0], camPos[1], camPos[2]]);
     }
 
     // Compute pass: Tessellate curves

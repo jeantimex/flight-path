@@ -77,6 +77,13 @@ fn unpackTextureIndex(packed: u32) -> u32 {
   return (packed >> 8u) & 0xFFu;
 }
 
+// Helper: Check if flight is visible (bit 1 of lower 16 bits)
+fn isFlightVisible(packed: u32) -> bool {
+  const FLAG_VISIBLE: u32 = 2u;
+  let flags = packed & 0xFFFFu;
+  return (flags & FLAG_VISIBLE) != 0u;
+}
+
 // Vertex shader
 @vertex
 fn vertexMain(
@@ -100,6 +107,12 @@ fn vertexMain(
   // Load flight data
   let flightOutput = flightOutputs[instanceIndex];
   let flightState = flightStates[instanceIndex];
+
+  // Frustum culling: skip invisible flights
+  if (!isFlightVisible(flightState.packedSizeFlags)) {
+    output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    return output;
+  }
 
   // Unpack color, size, and texture index
   let color = unpackColor(flightState.packedColor);

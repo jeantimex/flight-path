@@ -70,6 +70,13 @@ fn unpackColor(packed: u32) -> vec3<f32> {
   return vec3<f32>(r, g, b);
 }
 
+// Check if flight is visible (bit 1 of lower 16 bits)
+fn isFlightVisible(packed: u32) -> bool {
+  const FLAG_VISIBLE: u32 = 2u;
+  let flags = packed & 0xFFFFu;
+  return (flags & FLAG_VISIBLE) != 0u;
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Calculate linear thread index from 2D dispatch
@@ -88,11 +95,21 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     return;
   }
 
+  // Get flight state
+  let state = flightStates[flightIndex];
+
+  // Frustum culling: skip invisible flights (write degenerate vertex)
+  if (!isFlightVisible(state.packedSizeFlags)) {
+    lineVertices[vertexIndex].position = vec3<f32>(0.0, 0.0, 0.0);
+    lineVertices[vertexIndex].distance = 0.0;
+    lineVertices[vertexIndex].color = vec3<f32>(0.0, 0.0, 0.0);
+    return;
+  }
+
   // Get control points for this flight
   let cp = controlPoints[flightIndex];
 
   // Get color for this flight
-  let state = flightStates[flightIndex];
   let color = unpackColor(state.packedColor);
 
   // Calculate t parameter along curve [0.0, 1.0]

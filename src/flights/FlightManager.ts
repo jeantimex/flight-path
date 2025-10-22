@@ -49,10 +49,11 @@ export class FlightManager {
     this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
-    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + pad (4) = 16 bytes
-    this.uniformData = new Float32Array(4);
+    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + pad (4) = 32 bytes
+    this.uniformData = new Float32Array(8);
     this.uniformData[1] = this.earthRadius;
     this.uniformData[2] = this.animationSpeed;
+    this.uniformData[3] = 20000; // Default culling distance (covers most of visible globe)
 
     // Initialize buffers
     this.createBuffers();
@@ -85,9 +86,9 @@ export class FlightManager {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
     });
 
-    // Uniform Buffer (16 bytes)
+    // Uniform Buffer (32 bytes)
     this.uniformBuffer = this.device.createBuffer({
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -330,13 +331,20 @@ export class FlightManager {
     console.log('✅ Flight compute pipeline created');
   }
 
-  public update(commandEncoder: GPUCommandEncoder, deltaTime: number): void {
+  public update(commandEncoder: GPUCommandEncoder, deltaTime: number, cameraPosition: [number, number, number]): void {
     if (!this.computePipeline || !this.bindGroup) {
       return; // Pipeline not ready
     }
 
     // Update uniforms
     this.uniformData[0] = deltaTime;
+    // uniformData[1] = earthRadius (static)
+    // uniformData[2] = animationSpeed (static, updated via setAnimationSpeed)
+    // uniformData[3] = cullingDistance (static)
+    this.uniformData[4] = cameraPosition[0];
+    this.uniformData[5] = cameraPosition[1];
+    this.uniformData[6] = cameraPosition[2];
+    // uniformData[7] = padding
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, this.uniformData.buffer);
 
     // Dispatch compute shader
@@ -389,6 +397,14 @@ export class FlightManager {
   public setAnimationSpeed(speed: number): void {
     this.animationSpeed = Math.max(0.01, Math.min(speed, 1.0));
     this.uniformData[2] = this.animationSpeed;
+  }
+
+  public setCullingDistance(distance: number): void {
+    this.uniformData[3] = Math.max(1000, distance);
+  }
+
+  public getCullingDistance(): number {
+    return this.uniformData[3];
   }
 
   public destroy(): void {

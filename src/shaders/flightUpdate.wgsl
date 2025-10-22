@@ -9,6 +9,8 @@ struct Uniforms {
   deltaTime: f32,
   earthRadius: f32,
   animationSpeed: f32,
+  cullingDistance: f32,
+  cameraPosition: vec3<f32>,
   _pad0: f32,
 };
 
@@ -121,6 +123,17 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let cp = controlPoints[flightIndex];
   let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
   let tangent = catmullRomTangent(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
+
+  // Distance-based culling: check if flight is within culling distance
+  let distanceToCamera = length(position - uniforms.cameraPosition);
+  var updatedFlags = flags & ~FLAG_VISIBLE; // Clear visibility flag
+
+  if (distanceToCamera <= uniforms.cullingDistance) {
+    updatedFlags = updatedFlags | FLAG_VISIBLE; // Set visibility flag
+  }
+
+  // Update flags in state
+  state.packedSizeFlags = (state.packedSizeFlags & 0xFFFF0000u) | updatedFlags;
 
   // Write outputs
   outputs[flightIndex].position = position;
