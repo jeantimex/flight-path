@@ -12,6 +12,8 @@ struct Uniforms {
   cullingDistance: f32,
   cameraPosition: vec3<f32>,
   frameNumber: u32,
+  cameraDirection: vec3<f32>,  // Precomputed normalize(cameraPosition)
+  _pad0: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -138,8 +140,8 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   if (distanceToCamera <= uniforms.cullingDistance) {
     // Backface culling: check if plane is on visible side of Earth
     let pointDir = normalize(position);
-    let cameraDir = normalize(uniforms.cameraPosition);
-    let dotProduct = dot(pointDir, cameraDir);
+    // Use precomputed normalized camera direction (saves 1M normalize ops)
+    let dotProduct = dot(pointDir, uniforms.cameraDirection);
 
     // Only visible if on front hemisphere (dot > -0.1)
     if (dotProduct > -0.1) {

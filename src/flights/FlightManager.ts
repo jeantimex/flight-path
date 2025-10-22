@@ -22,6 +22,9 @@ export class FlightManager {
   private maxAltitude: number;
   private planeTextureCount: number;
 
+  // Uniform buffer size constant
+  private static readonly UNIFORM_BUFFER_SIZE = 48; // deltaTime + earthRadius + animationSpeed + cullingDistance + cameraPosition + frameNumber + cameraDirection + pad
+
   // Buffers
   private controlPointsBuffer: GPUBuffer | null = null;
   private flightStateBuffer: GPUBuffer | null = null;
@@ -52,12 +55,13 @@ export class FlightManager {
     this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
-    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) = 32 bytes
-    this.uniformData = new Float32Array(8);
+    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) + cameraDirection (12) + pad (4) = 48 bytes
+    this.uniformData = new Float32Array(12);
     this.uniformData[1] = this.earthRadius;
     this.uniformData[2] = this.animationSpeed;
     this.uniformData[3] = 20000; // Default culling distance (covers most of visible globe)
     // Note: uniformData[7] will be written as u32 via Uint32Array view
+    // Note: uniformData[8-10] will be normalized camera direction
 
     // Initialize buffers
     this.createBuffers();
@@ -90,9 +94,9 @@ export class FlightManager {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
     });
 
-    // Uniform Buffer (32 bytes)
+    // Uniform Buffer
     this.uniformBuffer = this.device.createBuffer({
-      size: 32,
+      size: FlightManager.UNIFORM_BUFFER_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -352,6 +356,16 @@ export class FlightManager {
     const uniformDataU32 = new Uint32Array(this.uniformData.buffer);
     uniformDataU32[7] = this.frameNumber;
     this.frameNumber++; // Increment for next frame
+
+    // Precompute normalized camera direction (saves 1M normalize operations in shader)
+    const camLength = Math.sqrt(
+      cameraPosition[0] * cameraPosition[0] +
+      cameraPosition[1] * cameraPosition[1] +
+      cameraPosition[2] * cameraPosition[2]
+    );
+    this.uniformData[8] = cameraPosition[0] / camLength;
+    this.uniformData[9] = cameraPosition[1] / camLength;
+    this.uniformData[10] = cameraPosition[2] / camLength;
 
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, this.uniformData.buffer);
 
