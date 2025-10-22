@@ -46,7 +46,7 @@ export class CurveManager {
     // Allocate uniform data buffer for rendering
     this.renderUniformData = new Float32Array(24); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + dashSize (1) + gapSize (1) + cameraPosition (3) + pad (1)
     this.renderUniformData[16] = 1.0; // curvesVisible
-    this.renderUniformData[17] = 3.0; // lineWidth (increased from 1.0 for better visibility)
+    this.renderUniformData[17] = 5.0; // lineWidth (increased for thicker lines)
     this.renderUniformData[18] = 0.0; // dashSize (0 = solid)
     this.renderUniformData[19] = 0.0; // gapSize
     // cameraPosition at indices 20-22 (updated each frame)
