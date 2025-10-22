@@ -251,6 +251,18 @@ export class CurveManager {
       return; // Pipeline not ready
     }
 
+    // Performance optimization: Skip curve tessellation for large flight counts
+    // Curves are very expensive (17M vertices at 1M flights)
+    const flightCount = this.flightManager.getVisibleFlightCount();
+    if (flightCount > 100000) {
+      // Skip tessellation for >100K flights
+      if (this.tessellateCount === 0) {
+        console.log(`⚠️  Curve tessellation skipped (${flightCount} flights exceeds 100K threshold)`);
+      }
+      this.tessellateCount++;
+      return;
+    }
+
     // Update uniforms
     this.device.queue.writeBuffer(this.computeUniformBuffer!, 0, this.computeUniformData.buffer);
 
@@ -261,8 +273,7 @@ export class CurveManager {
 
     // Dispatch workgroups: totalVertices / 64 threads per workgroup
     // WebGPU limit: max 65535 workgroups per dimension
-    // Only tessellate visible flights
-    const flightCount = this.flightManager.getVisibleFlightCount();
+    // Only tessellate visible flights (flightCount already declared above)
     const verticesPerCurve = this.segmentsPerCurve + 1;
     const totalVertices = flightCount * verticesPerCurve;
     const workgroupCount = Math.ceil(totalVertices / 64);
