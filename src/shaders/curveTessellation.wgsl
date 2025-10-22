@@ -84,11 +84,12 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let vertexIndex = globalId.y * 65535u * 64u + globalId.x;
 
   // Calculate which flight and which segment this vertex belongs to
+  // For line-list topology: N segments = 2N vertices (pairs)
   let segmentsPerCurve = uniforms.segmentsPerCurve;
-  let verticesPerCurve = segmentsPerCurve + 1u; // N segments = N+1 vertices
+  let verticesPerCurve = segmentsPerCurve * 2u; // line-list: 2 vertices per segment
 
   let flightIndex = vertexIndex / verticesPerCurve;
-  let segmentVertex = vertexIndex % verticesPerCurve;
+  let vertexInCurve = vertexIndex % verticesPerCurve;
 
   // Bounds check
   if (flightIndex >= uniforms.totalFlights) {
@@ -113,7 +114,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let color = unpackColor(state.packedColor);
 
   // Calculate t parameter along curve [0.0, 1.0]
-  let t = f32(segmentVertex) / f32(segmentsPerCurve);
+  // For line-list: each segment needs 2 vertices (start and end)
+  let segmentIndex = vertexInCurve / 2u;
+  let isEndVertex = (vertexInCurve % 2u) == 1u;
+  let t = f32(segmentIndex + select(0u, 1u, isEndVertex)) / f32(segmentsPerCurve);
 
   // Evaluate Catmull-Rom curve at t
   let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, t);

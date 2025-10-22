@@ -101,13 +101,13 @@ fn vertexMain(
     return output;
   }
 
-  // Bounds check
+  // Bounds check for visibility culling buffer
   if (instanceIndex >= arrayLength(&visibleIndices)) {
     output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     return output;
   }
 
-  // Get actual flight index from compacted visible indices
+  // Get flight index from compacted visible indices (indirect rendering)
   let flightIndex = visibleIndices[instanceIndex];
 
   // Load flight data using the actual flight index

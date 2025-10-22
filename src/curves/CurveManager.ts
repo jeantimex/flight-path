@@ -71,7 +71,7 @@ export class CurveManager {
     if (!this.flightManager) return;
 
     const flightCount = this.flightManager.getFlightCount();
-    const verticesPerCurve = this.segmentsPerCurve + 1; // N segments = N+1 vertices
+    const verticesPerCurve = this.segmentsPerCurve * 2; // line-list: 2 vertices per segment
     const totalVertices = flightCount * verticesPerCurve;
 
     // Line vertices buffer (output from compute, input to render)
@@ -231,7 +231,7 @@ export class CurveManager {
         ],
       },
       primitive: {
-        topology: 'line-strip',
+        topology: 'line-list',
       },
       depthStencil: {
         format: 'depth24plus',
@@ -317,15 +317,13 @@ export class CurveManager {
     renderPass.setBindGroup(0, this.renderBindGroup);
     renderPass.setVertexBuffer(0, this.lineVerticesBuffer!);
 
-    // Only render visible flights
+    // Single draw call for all curves using line-list topology
     const flightCount = this.flightManager.getVisibleFlightCount();
-    const verticesPerCurve = this.segmentsPerCurve + 1;
+    const verticesPerCurve = this.segmentsPerCurve * 2; // line-list: 2 vertices per segment
+    const totalVertices = flightCount * verticesPerCurve;
 
-    // Draw each curve as a separate line-strip
-    for (let i = 0; i < flightCount; i++) {
-      const firstVertex = i * verticesPerCurve;
-      renderPass.draw(verticesPerCurve, 1, firstVertex, 0);
-    }
+    // Draw all curve vertices in one call (1M curves → 1 draw call)
+    renderPass.draw(totalVertices, 1, 0, 0);
   }
 
   public setCurvesVisible(visible: boolean): void {

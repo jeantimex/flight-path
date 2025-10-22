@@ -76,6 +76,9 @@ export class PlanesWebGPU {
   private clearCounterPipeline: GPUComputePipeline | null = null;
   private clearCounterBindGroup: GPUBindGroup | null = null;
 
+  // Feature flags
+  private useIndirectRendering: boolean = true; // Enable GPU-driven draw calls
+
   constructor(device: GPUDevice, config: PlanesConfig = {}) {
     this.device = device;
     this.baseSize = config.baseSize ?? 10;
@@ -498,11 +501,11 @@ export class PlanesWebGPU {
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
 
-    if (this.drawArgsBuffer) {
+    if (this.useIndirectRendering && this.drawArgsBuffer) {
       // Use indirect rendering (instance count determined by visibility culling)
       renderPass.drawIndirect(this.drawArgsBuffer, 0);
     } else {
-      // Fallback to direct rendering (shouldn't happen)
+      // Direct rendering of all visible flights
       renderPass.draw(4, this.flightManager.getVisibleFlightCount());
     }
   }
