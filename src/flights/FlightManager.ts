@@ -112,13 +112,13 @@ export class FlightManager {
   }
 
   private initializeFlightData(): void {
-    // Constants for curve generation
-    const BULGE_MIN = 0.2; // Minimum bulge amount (20% of altitude)
-    const BULGE_MAX = 0.4; // Maximum bulge amount (40% of altitude)
-    const BULGE_INFLUENCE = 0.5; // How much bulge affects control points
-    const TANGENT_EXTENSION = 0.2; // How far to extend p0/p3 from p1/p2
+    // Constants for curve generation - reduced for paths aligned with Earth
+    const BULGE_MIN = 0.05; // Minimum bulge amount (5% of altitude)
+    const BULGE_MAX = 0.15; // Maximum bulge amount (15% of altitude)
+    const BULGE_INFLUENCE = 0.3; // How much bulge affects control points
+    const TANGENT_EXTENSION = 0.15; // How far to extend p0/p3 from p1/p2
     const EPSILON = 0.001; // Threshold for detecting parallel vectors
-    const FALLBACK_BULGE = 0.3; // Fallback bulge for edge cases
+    const FALLBACK_BULGE = 0.1; // Fallback bulge for edge cases
 
     // Helper: Calculate vector magnitude
     const magnitude = (v: { x: number; y: number; z: number }) =>
