@@ -399,8 +399,8 @@ export class WebGPUApp {
       this.flightManager = new FlightManager(this.gpuContext.device, {
         flightCount: 1000, // Initial visible count
         earthRadius: EARTH_RADIUS,
-        minAltitude: 30,
-        maxAltitude: 220,
+        minAltitude: 10, // Lower altitude to hug Earth's surface
+        maxAltitude: 50, // Much lower max for paths aligned with Earth
         planeTextureCount: 8, // 8 plane designs in atlas
       });
       this.flightManager.createPipeline();
