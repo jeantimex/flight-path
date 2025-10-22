@@ -5,38 +5,42 @@ GPU-optimized data structures for rendering 1 million simultaneous flight paths 
 
 ## Memory Budget
 
-Total: **~88MB** for 1M flights (optimized with packing)
+Total: **~112MB** for 1M flights (with alignment padding)
 
-### Control Points Buffer (48MB)
+### Control Points Buffer (64MB)
 ```
 Storage buffer (read-only in compute shader)
-- 1M flights × 4 control points × vec3 (12 bytes) = 48MB
-- Layout: [p0, p1, p2, p3] per flight (Catmull-Rom curve)
+- 1M flights × 64 bytes = 64MB
+- Layout: 4 × vec4 (16 bytes each, aligned) = 64 bytes per flight
+- Per-flight: [p0, p1, p2, p3] (Catmull-Rom curve control points)
+- Note: WebGPU requires 16-byte alignment for vec3 in storage buffers
 ```
 
 ### Flight State Buffer (16MB) - PACKED
 ```
 Storage buffer (read-write in compute shader)
-- 1M flights × 4 u32 = 16MB (was 28MB)
+- 1M flights × 16 bytes = 16MB
 - Per-flight packed data:
   - t: f32                  // Position on curve [0.0, 1.0]
-  - speed: f32              // Animation speed multiplier
+  - speed: f32              // Base speed (multiplied by animationSpeed uniform)
   - packedColor: u32        // RGBA8 (R8G8B8A8_UNORM)
-  - packedSizeFlags: u32    // 16-bit size + 16-bit flags
+  - packedSizeFlags: u32    // Bits 16-31: size, Bits 8-15: textureIndex, Bits 0-7: flags
 
 Packing benefits:
-- Saves 12MB memory (40% reduction)
-- Better cache coherency (16 bytes vs 28 bytes per flight)
+- Compact 16-byte alignment
+- Better cache coherency
 - Color precision: 8 bits per channel (sufficient for visualization)
+- Flags include: isReturnFlight
 ```
 
-### Output Buffer (24MB)
+### Output Buffer (32MB)
 ```
 Storage buffer (write-only from compute, read-only in vertex shader)
-- 1M flights × 6 floats = 24MB
-- Per-flight output:
-  - position: vec3<f32>     // Current world position
-  - direction: vec3<f32>    // Forward direction for orientation
+- 1M flights × 32 bytes = 32MB
+- Per-flight output (with alignment padding):
+  - position: vec3<f32> + pad (16 bytes)
+  - direction: vec3<f32> + pad (16 bytes)
+- Total: 32 bytes per flight
 ```
 
 ## Buffer Layouts
@@ -45,12 +49,16 @@ Storage buffer (write-only from compute, read-only in vertex shader)
 ```wgsl
 struct ControlPoints {
   p0: vec3<f32>,
+  _pad0: f32,
   p1: vec3<f32>,
+  _pad1: f32,
   p2: vec3<f32>,
+  _pad2: f32,
   p3: vec3<f32>,
+  _pad3: f32,
 };
 
-@group(0) @binding(0) var<storage, read> controlPoints: array<ControlPoints>;
+@group(0) @binding(1) var<storage, read> controlPoints: array<ControlPoints>;
 ```
 
 ### FlightStateBuffer
@@ -62,7 +70,7 @@ struct FlightState {
   packedSizeFlags: u32,    // Bits 16-31: size, Bits 8-15: textureIndex, Bits 0-7: flags
 };
 
-@group(0) @binding(1) var<storage, read_write> flightStates: array<FlightState>;
+@group(0) @binding(2) var<storage, read_write> flightStates: array<FlightState>;
 
 // Helper functions for packing/unpacking
 fn packColor(color: vec3<f32>) -> u32 {
@@ -101,10 +109,12 @@ fn unpackFlags(packed: u32) -> u32 {
 ```wgsl
 struct FlightOutput {
   position: vec3<f32>,
+  _pad0: f32,
   direction: vec3<f32>,
+  _pad1: f32,
 };
 
-@group(0) @binding(2) var<storage, read_write> outputs: array<FlightOutput>;
+@group(0) @binding(3) var<storage, read_write> outputs: array<FlightOutput>;
 ```
 
 ## Initialization Strategy
@@ -117,32 +127,60 @@ struct FlightOutput {
 
 ### GPU Compute Shader
 ```wgsl
+// Uniforms
+struct Uniforms {
+  deltaTime: f32,
+  earthRadius: f32,
+  animationSpeed: f32,  // Global speed multiplier (0.01-1.0)
+  _pad0: f32,
+};
+
 @compute @workgroup_size(64)
-fn updateFlights(
-  @builtin(global_invocation_id) globalId: vec3<u32>
-) {
-  let flightIndex = globalId.x;
+fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
+  // 2D dispatch support for >65K workgroups
+  let flightIndex = globalId.y * 65535u * 64u + globalId.x;
+
   if (flightIndex >= arrayLength(&flightStates)) {
     return;
   }
 
-  // Update t parameter
   var state = flightStates[flightIndex];
-  state.t += deltaTime * state.speed;
+  let flags = state.packedSizeFlags & 0xFFFFu;
+  let isReturnFlight = (flags & FLAG_RETURN_FLIGHT) != 0u;
+
+  // Update t parameter with global animation speed
+  var newT = state.t + uniforms.deltaTime * state.speed * uniforms.animationSpeed;
 
   // Handle loop/return flight
-  if (state.t > 1.0) {
-    state.t = 0.0; // Or reverse direction for return flights
+  if (isReturnFlight) {
+    // Reverse direction at endpoints
+    if (newT > 1.0) {
+      state.speed = -abs(state.speed);
+      newT = clamp(1.0 - (newT - 1.0), 0.0, 1.0);
+    } else if (newT < 0.0) {
+      state.speed = abs(state.speed);
+      newT = clamp(-newT, 0.0, 1.0);
+    }
+  } else {
+    newT = fract(newT); // Loop continuously
   }
 
-  // Evaluate Catmull-Rom curve at t
+  state.t = clamp(newT, 0.0, 1.0);
+
+  // Evaluate Catmull-Rom curve
   let cp = controlPoints[flightIndex];
   let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
-  let direction = catmullRomTangent(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
+  let tangent = catmullRomTangent(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
 
-  // Write output
   outputs[flightIndex].position = position;
-  outputs[flightIndex].direction = normalize(direction);
+
+  // Flip direction if traveling backwards
+  var direction = normalize(tangent);
+  if (state.speed < 0.0) {
+    direction = -direction;
+  }
+  outputs[flightIndex].direction = direction;
+
   flightStates[flightIndex] = state;
 }
 ```
@@ -150,45 +188,56 @@ fn updateFlights(
 ## Performance Targets
 
 - **Compute shader dispatch**: 1M flights / 64 threads = 15,625 workgroups
+  - Uses 2D dispatch (65535 × Y) to bypass 65K workgroup limit
 - **Target**: < 5ms per frame (200fps compute budget)
-- **GPU memory**: 88MB (well within 1GB WebGPU limits)
+- **GPU memory**: 112MB (well within 1GB WebGPU limits)
 - **Memory bandwidth**:
-  - Read: 48MB (control) + 16MB (state) = 64MB
-  - Write: 24MB (output) + 16MB (state) = 40MB
-  - Total: 104MB/frame × 60fps = 6.2 GB/s (~1-3% of GPU bandwidth)
+  - Read: 64MB (control) + 16MB (state) + 0.016MB (uniforms) = 80MB
+  - Write: 32MB (output) + 16MB (state) = 48MB
+  - Total: 128MB/frame × 60fps = 7.68 GB/s (~1-3% of GPU bandwidth)
 
-## Curve Rendering Strategy (affects Step 12)
+## Curve Rendering Strategy (IMPLEMENTED - Steps 12-13)
 
-### Option A: No curve rendering (planes only)
-- Memory: 88MB
-- Performance: Best (compute + instanced planes only)
-- Bandwidth: 6.2 GB/s
+### Implemented: Compute Shader Tessellation
+- **Memory**: 112MB (flight data) + 33MB (curve vertices) = 145MB total
+- **Strategy**: Generate curve line vertices in compute shader
+- **Segmentation**: 32 segments per curve (33 vertices)
+- **Performance**: ~1-2ms additional compute time
+- **Rendering**: Line strips with dashed line support
 
-### Option B: Frustum culling + on-demand curves
-- Render curves only for visible flights (~30% = 300K)
-- Generate curve geometry in compute shader
-- Memory: 88MB + ~50MB for visible curves = 138MB
-- Performance: Good (selective rendering)
-- Additional compute: ~1-2ms for curve tessellation
+### Curve Tessellation Details
+- **Buffer**: lineVerticesBuffer (1M × 33 vertices × 32 bytes = 33MB)
+- **Compute shader**: Evaluates Catmull-Rom curves at 32 points
+- **Features**:
+  - Arc length calculation for dashed lines (10-sample approximation)
+  - Gradient coloring (fades at endpoints)
+  - Supports dash/gap patterns in fragment shader
+  - Only tessellates visible flight count (dynamic)
 
-### Option C: Full pre-tessellation
-- 1M curves × 50 segments × 2 vertices × vec3 = 1.2GB
-- Not recommended (exceeds memory budget)
+## Integration Points (IMPLEMENTED)
 
-**Recommendation**: Start with Option A (planes only), add Option B if curves needed.
-
-## Integration Points
-
-### Step 10: Compute Shader
-- Reads: ControlPointsBuffer, FlightStateBuffer, uniforms (deltaTime)
-- Writes: OutputBuffer, FlightStateBuffer (updated t)
+### Step 10: Compute Shader (Flight Updates)
+- **File**: `src/shaders/flightUpdate.wgsl`
+- **Reads**: ControlPointsBuffer, FlightStateBuffer, uniforms (deltaTime, animationSpeed)
+- **Writes**: OutputBuffer, FlightStateBuffer (updated t, speed)
+- **Features**: 2D dispatch, return flight support, speed reversal
 
 ### Step 11: Instanced Plane Rendering
-- Reads: OutputBuffer (position, direction)
-- Reads: FlightStateBuffer (size, color) via separate binding
-- Renders: 1M quads in single draw call
+- **File**: `src/planes/PlanesWebGPU.ts`, `src/shaders/planes.wgsl`
+- **Reads**: OutputBuffer (position, direction), FlightStateBuffer (size, color, textureIndex)
+- **Renders**: 1M billboards in single draw call
+- **Features**:
+  - SVG/Pane modes (textured sprites vs solid quads)
+  - Elevation offset (radial from Earth)
+  - Color override (unified color or random per plane)
+  - 8-tile texture atlas (4×2 grid)
 
-### Step 12: Curve Rendering (optional)
-- Reads: ControlPointsBuffer, FlightStateBuffer (for visibility)
-- Generates: Curve vertices in compute shader
-- Renders: Line strips with gradient coloring
+### Steps 12-13: Curve Rendering
+- **Files**: `src/curves/CurveManager.ts`, `src/shaders/curveTessellation.wgsl`, `src/shaders/curves.wgsl`
+- **Reads**: ControlPointsBuffer, FlightStateBuffer
+- **Generates**: Line vertices in compute shader (32 segments per curve)
+- **Renders**: Line strips with gradient coloring and dashed line support
+- **Features**:
+  - Arc length calculation for dash patterns
+  - Visibility control (hide/show paths)
+  - Dash/gap size configurable (0-100 range)
