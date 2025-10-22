@@ -43,7 +43,9 @@ export class WebGPUApp {
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
   private loadingScreen: HTMLElement | null = null;
+  private footerCoordinatesElement: HTMLElement | null = null;
   private stats: Stats;
+  private isAnimatingCamera: boolean = false;
 
   constructor() {
     // Initialize Stats.js for performance monitoring
@@ -69,6 +71,9 @@ export class WebGPUApp {
 
     // Create loading screen
     this.createLoadingScreen();
+
+    // Create footer
+    this.createFooter();
 
     // Initialize WebGPU
     this.initialize();
@@ -127,6 +132,59 @@ export class WebGPUApp {
     }, 2000);
   }
 
+  private createFooter(): void {
+    const existing = document.getElementById('app-footer');
+    if (existing) {
+      this.footerCoordinatesElement = existing.querySelector('#coordinates') as HTMLElement | null;
+      if (this.footerCoordinatesElement) {
+        this.footerCoordinatesElement.style.display = 'none';
+      }
+      return;
+    }
+
+    const footer = document.createElement('div');
+    footer.id = 'app-footer';
+    footer.style.cssText = `
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      z-index: 10000;
+      pointer-events: none;
+    `;
+
+    footer.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px; pointer-events: auto;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width: 16px; height: 16px; fill: white;">
+          <path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3 .3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5 .3-6.2 2.3zm44.2-1.7c-2.9 .7-4.9 2.6-4.6 4.9 .3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM252.8 8c-138.7 0-244.8 105.3-244.8 244 0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1 100-33.2 167.8-128.1 167.8-239 0-138.7-112.5-244-251.2-244zM105.2 352.9c-1.3 1-1 3.3 .7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3 .3 2.9 2.3 3.9 1.6 1 3.6 .7 4.3-.7 .7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3 .7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3 .7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/>
+        </svg>
+        <span>Made by</span>
+        <a href="https://github.com/jeantimex/flight-path" target="_blank" rel="noopener noreferrer"
+           style="color: #58a6ff; text-decoration: none; font-weight: 500;">
+          jeantimex
+        </a>
+      </div>
+      <div id="coordinates" style="pointer-events: none; font-family: monospace; font-size: 12px; opacity: 0.8; display: none;">
+        Lat: 0.00°, Lng: 0.00°
+      </div>
+    `;
+
+    document.body.appendChild(footer);
+    this.footerCoordinatesElement = footer.querySelector('#coordinates') as HTMLElement | null;
+    if (this.footerCoordinatesElement) {
+      this.footerCoordinatesElement.style.display = 'none';
+    }
+  }
+
   private checkReadyToStart(): void {
     if (this.earthTextureLoaded && this.planeAtlasLoaded && this.minLoadingTime) {
       this.removeLoadingScreen();
@@ -147,6 +205,105 @@ export class WebGPUApp {
         (el as HTMLElement).style.display = 'block';
       });
       this.stats.dom.style.display = 'block';
+
+      // Show footer coordinates
+      if (this.footerCoordinatesElement) {
+        this.footerCoordinatesElement.style.display = 'block';
+      }
+
+      // Start camera zoom-in animation
+      this.animateInitialCamera();
+    }, 500);
+  }
+
+  private animateInitialCamera(): void {
+    if (!this.camera) {
+      console.warn('Camera not initialized, skipping animation');
+      return;
+    }
+
+    // Simple zoom: animate from current position (far) to target position (close)
+    const currentPos = this.camera.position;
+    const currentDistance = Math.sqrt(currentPos[0] * currentPos[0] + currentPos[1] * currentPos[1] + currentPos[2] * currentPos[2]);
+
+    // Normalize direction
+    const dirX = currentPos[0] / currentDistance;
+    const dirY = currentPos[1] / currentDistance;
+    const dirZ = currentPos[2] / currentDistance;
+
+    // Set distances - animate from current (far) to target (close)
+    const startDistance = currentDistance;  // Start at current position (far)
+    const targetDistance = EARTH_RADIUS * 2.06; // End at viewing distance (optimized Earth size)
+
+    const startPos: [number, number, number] = [
+      dirX * startDistance,
+      dirY * startDistance,
+      dirZ * startDistance
+    ];
+
+    const targetPos: [number, number, number] = [
+      dirX * targetDistance,
+      dirY * targetDistance,
+      dirZ * targetDistance
+    ];
+
+    // Set flag to skip controls update during animation (including delay)
+    this.isAnimatingCamera = true;
+
+    // Animate to target position (3s duration, 500ms delay)
+    setTimeout(() => {
+      const startTime = Date.now();
+      const duration = 3000;
+
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // Ease-out cubic
+        const easeProgress = 1 - Math.pow(1 - progress, 3);
+
+        // Interpolate position (zoom along same direction)
+        const x = startPos[0] + (targetPos[0] - startPos[0]) * easeProgress;
+        const y = startPos[1] + (targetPos[1] - startPos[1]) * easeProgress;
+        const z = startPos[2] + (targetPos[2] - startPos[2]) * easeProgress;
+
+        if (this.camera) {
+          this.camera.setPosition(x, y, z);
+          this.camera.updateViewMatrix(); // CRITICAL: Update view matrix for camera to take effect!
+          // Log every 0.5 seconds
+          if (Math.floor(elapsed / 500) !== Math.floor((elapsed - 16) / 500)) {
+            const dist = Math.sqrt(x*x + y*y + z*z);
+            console.log(`⏱️ Progress: ${(progress*100).toFixed(0)}%, Distance: ${dist.toFixed(0)}`);
+          }
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          console.log('✅ Camera animation complete');
+          this.isAnimatingCamera = false;
+
+          // Create OrbitControls now that camera is at final position
+          if (!this.controls) {
+            console.log('🎮 Creating OrbitControls after animation');
+            this.controls = new OrbitControls(this.camera!, this.canvas, {
+              enableDamping: true,
+              dampingFactor: 0.05,
+              minDistance: 3200,
+              maxDistance: 20000,
+              minPolarAngle: Math.PI * 0.05,
+              maxPolarAngle: Math.PI * 0.95,
+              enablePan: false,
+              enableZoom: true,
+              enableRotate: true,
+              rotateSpeed: 0.3,
+              zoomSpeed: 0.05,
+            });
+          }
+        }
+      };
+
+      animate();
     }, 500);
   }
 
@@ -162,32 +319,42 @@ export class WebGPUApp {
       console.log('Device:', this.gpuContext.device);
       console.log('Format:', this.gpuContext.presentationFormat);
 
-      // Initialize camera
+      // Initialize camera at animation START position (far away)
       const aspect = this.canvas.width / this.canvas.height;
+      const finalDistance = EARTH_RADIUS * 2.06; // ~6180 (optimized Earth size at end)
+      const startDistance = finalDistance * 1.25; // ~7725 (optimized Earth size at start)
+
+      // Position camera to match main branch initial position (lat: 12.05°, lng: -26.22°)
+      // Convert lat/lng to camera position (reverse of updateCoordinateDisplay logic)
+      const lat = 12.05;
+      const lng = -26.22;
+      const phi = (90 - lat) * Math.PI / 180; // 77.95° in radians
+      const theta = lng * Math.PI / 180;
+
+      // Calculate display coordinates (x, y, z used in lat/lng calculation)
+      const y = Math.cos(phi); // ≈ 0.209
+      const x = Math.sin(phi) * Math.cos(theta); // ≈ 0.879
+      const z = Math.sin(phi) * Math.sin(theta); // ≈ -0.429
+
+      // Convert back to camera position (reverse of: x=-surfaceZ, y=surfaceY, z=surfaceX)
+      // From display code: x = camPos[2], y = -camPos[1], z = -camPos[0]
+      const camX = -z * startDistance; // = 0.429 * startDistance
+      const camY = -y * startDistance; // = -0.209 * startDistance
+      const camZ = x * startDistance;  // = 0.879 * startDistance
+
       this.camera = new PerspectiveCamera({
         fov: 75,
         aspect,
         near: 0.1,
         far: 50000,
-        position: [0, 2000, 8000],
+        position: [camX, camY, camZ], // Start position (far away, will animate closer)
         target: [0, 0, 0],
         up: [0, 1, 0],
       });
 
-      // Initialize orbit controls
-      this.controls = new OrbitControls(this.camera, this.canvas, {
-        enableDamping: true,
-        dampingFactor: 0.05,
-        minDistance: 3200,
-        maxDistance: 20000,
-        minPolarAngle: Math.PI * 0.05, // Prevent going directly above north pole
-        maxPolarAngle: Math.PI * 0.95, // Prevent going directly below south pole
-        enablePan: false,
-        enableZoom: true,
-        enableRotate: true,
-        rotateSpeed: 0.3, // Slower rotation for better control
-        zoomSpeed: 0.05, // Even slower zoom for finer control
-      });
+      // OrbitControls will be initialized AFTER camera animation completes
+      // to avoid it resetting the camera position
+      this.controls = null as any; // Temporary, will be created after animation
 
       console.log('✅ Camera and controls initialized');
 
@@ -218,10 +385,10 @@ export class WebGPUApp {
 
       console.log('✅ Stars initialized');
 
-      // Initialize Atmosphere
+      // Initialize Atmosphere (very thin glow like main branch)
       this.atmosphere = new AtmosphereWebGPU(this.gpuContext.device, {
         earthRadius: EARTH_RADIUS,
-        scale: 1.25,
+        scale: 1.025, // Very thin atmosphere glow
       });
       this.atmosphere.createPipeline(this.gpuContext.presentationFormat);
 
@@ -333,6 +500,42 @@ export class WebGPUApp {
     }
   };
 
+  private updateCoordinateDisplay(): void {
+    if (!this.footerCoordinatesElement || !this.camera || !this.earth) {
+      return;
+    }
+
+    // Get camera position
+    const camPos = this.camera.position;
+
+    // Calculate direction from camera to Earth center
+    const dirX = -camPos[0];
+    const dirY = -camPos[1];
+    const dirZ = -camPos[2];
+    const len = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+
+    // Normalize direction and scale to Earth surface
+    const surfaceX = (dirX / len) * EARTH_RADIUS;
+    const surfaceY = (dirY / len) * EARTH_RADIUS;
+    const surfaceZ = (dirZ / len) * EARTH_RADIUS;
+
+    // Convert to lat/lng (WebGPU coordinates)
+    // Reverse coordinate transformation: x = -z, y = y, z = x
+    const x = -surfaceZ;
+    const y = surfaceY;
+    const z = surfaceX;
+
+    // Calculate spherical coordinates
+    const phi = Math.acos(Math.max(-1, Math.min(1, y / EARTH_RADIUS)));
+    const theta = Math.atan2(z, x);
+
+    // Convert to degrees
+    const lat = 90 - (phi * 180 / Math.PI);
+    const lng = theta * 180 / Math.PI;
+
+    this.footerCoordinatesElement.textContent = `Lat: ${lat.toFixed(2)}°, Lng: ${lng.toFixed(2)}°`;
+  }
+
   private frame = (now: number): void => {
     if (!this.gpuContext) return;
 
@@ -351,10 +554,12 @@ export class WebGPUApp {
   };
 
   private render(deltaTime: number): void {
-    if (!this.gpuContext || !this.camera || !this.controls) return;
+    if (!this.gpuContext || !this.camera) return;
 
-    // Update camera controls
-    this.controls.update();
+    // Update camera controls (skip during animation, skip if not created yet)
+    if (!this.isAnimatingCamera && this.controls) {
+      this.controls.update();
+    }
 
     // Update real-time sun position
     if (this.guiControls) {
@@ -365,6 +570,9 @@ export class WebGPUApp {
     if (this.stars) {
       this.stars.update(deltaTime);
     }
+
+    // Update coordinate display
+    this.updateCoordinateDisplay();
 
     const { device, context, depthTextureView } = this.gpuContext;
 

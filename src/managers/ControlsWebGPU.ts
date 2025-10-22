@@ -89,7 +89,7 @@ export class ControlsWebGPU {
 
       // Plane Controls
       planeSize: 100,
-      animationSpeed: 1.0,
+      animationSpeed: 0.1, // Default 0.1 (scaled 10x = 1.0 actual)
       elevationOffset: 15,
       planeStyle: 'SVG',
       hidePlane: false,
@@ -107,11 +107,11 @@ export class ControlsWebGPU {
   }
 
   private setupControls(): void {
-    this.setupEarthControls();
-    this.setupBrightnessControls();
     this.setupFlightControls();
     this.setupFlightPathControls();
     this.setupPlaneControls();
+    this.setupEarthControls();
+    this.setupBrightnessControls();
   }
 
   private setupEarthControls(): void {
@@ -210,6 +210,8 @@ export class ControlsWebGPU {
     earthFolder
       .add(resetButton, 'reset')
       .name('Reset Sun Position');
+
+    earthFolder.open();
   }
 
   private formatTimeDisplay(hours: number): string {
@@ -240,6 +242,8 @@ export class ControlsWebGPU {
           this.earth.setNightBrightness(value);
         }
       });
+
+    brightnessFolder.open();
   }
 
   private setupFlightControls(): void {
@@ -361,15 +365,17 @@ export class ControlsWebGPU {
       this.planeColorController.domElement.style.opacity = '0.5';
     }
 
-    // Animation Speed
+    // Animation Speed (GUI shows 0.01-1.0, scaled 10x for actual speed)
     planeFolder
-      .add(this.params, 'animationSpeed', 0.01, 2.0, 0.01)
+      .add(this.params, 'animationSpeed', 0.01, 1.0, 0.01)
       .name('Animation Speed')
       .onChange((value: number) => {
+        // Scale speed by 10x (0.1 GUI = 1.0 actual, 1.0 GUI = 10.0 actual)
+        const actualSpeed = value * 10;
         if (this.flightManager) {
-          this.flightManager.setAnimationSpeed(value);
+          this.flightManager.setAnimationSpeed(actualSpeed);
         }
-        this.callbacks.onAnimationSpeedChange?.(value);
+        this.callbacks.onAnimationSpeedChange?.(actualSpeed);
       });
 
     // Elevation Offset
