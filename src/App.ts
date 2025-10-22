@@ -376,7 +376,7 @@ export class WebGPUApp {
 
       // Initialize Stars
       this.stars = new StarsWebGPU(this.gpuContext.device, {
-        starCount: 5000,
+        starCount: 25000, // Much more stars with twinkling
         minRadius: 50000,
         maxRadius: 100000,
         starSize: 150,

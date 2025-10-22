@@ -61,8 +61,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
     discard;
   }
 
-  // Twinkling animation
-  let twinkle = sin(uniforms.time * input.opacity * 3.0 + input.opacity * 10.0) * 0.3 + 0.7;
+  // Twinkling animation - more pronounced blinking
+  let twinkle = sin(uniforms.time * input.opacity * 4.0 + input.opacity * 15.0) * 0.5 + 0.5;
 
   // Fade from center to edge
   let alpha = (1.0 - dist * 2.0) * twinkle;
