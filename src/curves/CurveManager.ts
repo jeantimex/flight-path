@@ -43,7 +43,7 @@ export class CurveManager {
   private renderUniformData: Float32Array;
 
   // Performance budget: Maximum curves to render
-  private static readonly MAX_CURVES = 50000;
+  private static readonly MAX_CURVES = 20000;
 
   constructor(device: GPUDevice, config: CurveManagerConfig = {}) {
     this.device = device;
