@@ -47,6 +47,7 @@ export interface ControlsWebGPUCallbacks {
   onAnimationSpeedChange?: (speed: number) => void;
   onElevationOffsetChange?: (offset: number) => void;
   onPlaneColorChange?: (color: string) => void;
+  onPlaneStyleChange?: (style: string) => void;
 }
 
 export class ControlsWebGPU {
@@ -351,13 +352,16 @@ export class ControlsWebGPU {
         this.callbacks.onElevationOffsetChange?.(value);
       });
 
-    // Read-only: Only SVG supported
-    const styleCtrl = planeFolder
-      .add(this.params, 'planeStyle', ['SVG'])
+    // Plane Style: SVG (textured) or Pane (solid color)
+    planeFolder
+      .add(this.params, 'planeStyle', ['SVG', 'Pane'])
       .name('Plane Style')
-      .listen();
-    styleCtrl.domElement.style.pointerEvents = 'none';
-    styleCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: string) => {
+        if (this.planes) {
+          this.planes.setPlaneStyle(value as 'SVG' | 'Pane');
+        }
+        this.callbacks.onPlaneStyleChange?.(value);
+      });
 
     planeFolder
       .add(this.params, 'hidePlane')
@@ -377,6 +381,10 @@ export class ControlsWebGPU {
     // Apply initial plane color
     if (this.params.planeColor) {
       this.planes.setPlaneColor(this.params.planeColor);
+    }
+    // Apply initial plane style
+    if (this.params.planeStyle) {
+      this.planes.setPlaneStyle(this.params.planeStyle as 'SVG' | 'Pane');
     }
   }
 

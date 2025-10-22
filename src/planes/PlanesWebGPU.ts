@@ -53,6 +53,9 @@ export class PlanesWebGPU {
   private planeColorOverride: [number, number, number] = [1.0, 0.4, 0.4]; // #ff6666
   private useColorOverride: number = 1.0; // Enabled by default to match legacy
 
+  // Plane style
+  private planeStyle: 'SVG' | 'Pane' = 'SVG';
+
   // Reusable uniform data
   private uniformData: Float32Array;
 
@@ -111,7 +114,8 @@ export class PlanesWebGPU {
       const loadedTexture = await loadTexture(this.device, path, { flipY: true });
       this.texture = loadedTexture.texture;
       this.useTexture = true;
-      this.uniformData[25] = 1.0;
+      // Only enable texture if in SVG mode (respect current plane style)
+      this.uniformData[25] = this.planeStyle === 'SVG' ? 1.0 : 0.0;
 
       console.log(`✅ Plane texture loaded: ${path}`);
 
@@ -139,7 +143,8 @@ export class PlanesWebGPU {
     this.useTexture = true;
 
     // Update uniforms
-    this.uniformData[25] = 1.0; // useTexture
+    // Only enable texture if in SVG mode (respect current plane style)
+    this.uniformData[25] = this.planeStyle === 'SVG' ? 1.0 : 0.0;
     this.uniformData[27] = atlasInfo.columns;
     this.uniformData[28] = atlasInfo.rows;
 
@@ -333,6 +338,20 @@ export class PlanesWebGPU {
     this.uniformData[34] = b; // Offset 136
     this.useColorOverride = 1.0;
     this.uniformData[35] = 1.0; // Offset 140
+  }
+
+  public setPlaneStyle(style: 'SVG' | 'Pane'): void {
+    this.planeStyle = style;
+
+    if (style === 'Pane') {
+      // Pane mode: disable texture, use solid colors
+      this.uniformData[25] = 0.0; // useTexture = false
+      this.uniformData[35] = 0.0; // useColorOverride = false (use random colors)
+    } else {
+      // SVG mode: enable texture and color override
+      this.uniformData[25] = this.texture ? 1.0 : 0.0; // useTexture
+      this.uniformData[35] = 1.0; // useColorOverride = true (use selected color)
+    }
   }
 
   public destroy(): void {
