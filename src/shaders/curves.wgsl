@@ -10,6 +10,8 @@ struct Uniforms {
   lineWidth: f32,
   dashSize: f32,
   gapSize: f32,
+  cameraPosition: vec3<f32>,  // Camera position for backface culling
+  _pad0: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -35,6 +37,22 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 
   // Hide if not visible
   if (uniforms.curvesVisible < 0.5) {
+    output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    return output;
+  }
+
+  // Backface culling: Hide curves on far side of Earth
+  // Calculate vector from Earth center (0,0,0) to curve point
+  let pointDir = normalize(input.position);
+
+  // Calculate vector from Earth center to camera
+  let cameraDir = normalize(uniforms.cameraPosition);
+
+  // Dot product: >0 means point is on visible hemisphere
+  let dotProduct = dot(pointDir, cameraDir);
+
+  // Cull points on far side (with small threshold to avoid edge artifacts)
+  if (dotProduct < -0.1) {
     output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     return output;
   }

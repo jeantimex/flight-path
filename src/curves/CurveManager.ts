@@ -50,11 +50,12 @@ export class CurveManager {
     this.computeUniformData = new Uint32Array(4); // segmentsPerCurve, totalFlights, pad, pad
     this.computeUniformData[0] = this.segmentsPerCurve;
 
-    this.renderUniformData = new Float32Array(20); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + dashSize (1) + gapSize (1)
+    this.renderUniformData = new Float32Array(24); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + dashSize (1) + gapSize (1) + cameraPosition (3) + pad (1)
     this.renderUniformData[16] = 1.0; // curvesVisible
     this.renderUniformData[17] = 1.0; // lineWidth
     this.renderUniformData[18] = 0.0; // dashSize (0 = solid)
     this.renderUniformData[19] = 0.0; // gapSize
+    // cameraPosition at indices 20-22 (updated each frame)
   }
 
   public setFlightManager(flightManager: FlightManager): void {
@@ -167,7 +168,7 @@ export class CurveManager {
 
     // Create uniform buffer
     this.renderUniformBuffer = this.device.createBuffer({
-      size: 80, // 20 floats × 4 bytes
+      size: 96, // 24 floats × 4 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -310,6 +311,12 @@ export class CurveManager {
     this.renderUniformData.set(camera.viewProjectionMatrix, 0);
     this.renderUniformData[18] = this.dashSize;
     this.renderUniformData[19] = this.gapSize;
+
+    // Pass camera position for backface culling
+    this.renderUniformData[20] = camera.position[0];
+    this.renderUniformData[21] = camera.position[1];
+    this.renderUniformData[22] = camera.position[2];
+
     this.device.queue.writeBuffer(this.renderUniformBuffer!, 0, this.renderUniformData.buffer);
 
     // Render curves
@@ -317,12 +324,11 @@ export class CurveManager {
     renderPass.setBindGroup(0, this.renderBindGroup);
     renderPass.setVertexBuffer(0, this.lineVerticesBuffer!);
 
-    // Single draw call for all curves using line-list topology
+    // Draw ALL vertices - shader handles backface culling
     const flightCount = this.flightManager.getVisibleFlightCount();
     const verticesPerCurve = this.segmentsPerCurve * 2; // line-list: 2 vertices per segment
     const totalVertices = flightCount * verticesPerCurve;
 
-    // Draw all curve vertices in one call (1M curves → 1 draw call)
     renderPass.draw(totalVertices, 1, 0, 0);
   }
 
