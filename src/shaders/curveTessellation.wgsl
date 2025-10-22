@@ -8,8 +8,8 @@
 struct Uniforms {
   segmentsPerCurve: u32,
   totalFlights: u32,
+  decimation: u32,      // Show every Nth curve (1 = all, 10 = every 10th)
   _pad0: u32,
-  _pad1: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -94,6 +94,12 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   // Bounds check
   if (flightIndex >= uniforms.totalFlights) {
     return;
+  }
+
+  // Decimation: Show every Nth curve for performance
+  // Distributes curves evenly across all flights
+  if (flightIndex % uniforms.decimation != 0u) {
+    return; // Skip this curve
   }
 
   // Get flight state

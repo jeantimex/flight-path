@@ -42,13 +42,17 @@ export class CurveManager {
   private computeUniformData: Uint32Array;
   private renderUniformData: Float32Array;
 
+  // Performance budget: Maximum curves to render
+  private static readonly MAX_CURVES = 50000;
+
   constructor(device: GPUDevice, config: CurveManagerConfig = {}) {
     this.device = device;
     this.segmentsPerCurve = config.segmentsPerCurve ?? 32; // 32 segments = smooth curves
 
     // Allocate uniform data buffers
-    this.computeUniformData = new Uint32Array(4); // segmentsPerCurve, totalFlights, pad, pad
+    this.computeUniformData = new Uint32Array(4); // segmentsPerCurve, totalFlights, decimation, pad
     this.computeUniformData[0] = this.segmentsPerCurve;
+    this.computeUniformData[2] = 1; // decimation (1 = show all)
 
     this.renderUniformData = new Float32Array(24); // viewProjectionMatrix (16) + curvesVisible (1) + lineWidth (1) + dashSize (1) + gapSize (1) + cameraPosition (3) + pad (1)
     this.renderUniformData[16] = 1.0; // curvesVisible
@@ -246,25 +250,47 @@ export class CurveManager {
 
   private tessellateCount = 0;
 
+  /**
+   * Calculate adaptive LOD parameters based on flight count
+   * Returns segment count and decimation factor for performance optimization
+   */
+  private calculateLOD(flightCount: number): { activeSegments: number; decimation: number } {
+    if (flightCount <= CurveManager.MAX_CURVES) {
+      // Low count: show all curves with high detail
+      return { activeSegments: 32, decimation: 1 };
+    }
+
+    // High count: show subset with lower detail
+    const estimatedVisible = Math.floor(flightCount * 0.5); // ~50% visible (hemisphere)
+    const decimation = Math.ceil(estimatedVisible / CurveManager.MAX_CURVES);
+
+    // Reduce segments based on total load
+    let activeSegments: number;
+    if (estimatedVisible <= 100000) {
+      activeSegments = 16;
+    } else if (estimatedVisible <= 500000) {
+      activeSegments = 8;
+    } else {
+      activeSegments = 4;
+    }
+
+    return { activeSegments, decimation };
+  }
+
   public tessellate(commandEncoder: GPUCommandEncoder): void {
     if (!this.computePipeline || !this.computeBindGroup || !this.flightManager) {
       console.warn('Curve tessellation skipped: pipeline not ready');
       return; // Pipeline not ready
     }
 
-    // Performance optimization: Skip curve tessellation for large flight counts
-    // Curves are very expensive (17M vertices at 1M flights)
     const flightCount = this.flightManager.getVisibleFlightCount();
-    if (flightCount > 100000) {
-      // Skip tessellation for >100K flights
-      if (this.tessellateCount === 0) {
-        console.log(`⚠️  Curve tessellation skipped (${flightCount} flights exceeds 100K threshold)`);
-      }
-      this.tessellateCount++;
-      return;
-    }
+
+    // Calculate adaptive LOD parameters
+    const { activeSegments, decimation } = this.calculateLOD(flightCount);
 
     // Update uniforms
+    this.computeUniformData[0] = activeSegments;
+    this.computeUniformData[2] = decimation;
     this.device.queue.writeBuffer(this.computeUniformBuffer!, 0, this.computeUniformData.buffer);
 
     // Dispatch compute shader
@@ -297,7 +323,8 @@ export class CurveManager {
 
     // Log once
     if (this.tessellateCount === 0) {
-      console.log(`✅ Curve tessellation running (${flightCount} curves, ${totalVertices} vertices, ${workgroupCount} workgroups in ${dispatchX}×${dispatchY} grid)`);
+      const actualCurves = Math.ceil(flightCount / decimation);
+      console.log(`✅ Adaptive curve LOD (${flightCount} flights → ${actualCurves} curves shown, ${activeSegments} segments, decimation: 1/${decimation}, ${totalVertices} vertices, ${workgroupCount} workgroups in ${dispatchX}×${dispatchY} grid)`);
     }
     this.tessellateCount++;
   }
@@ -324,9 +351,11 @@ export class CurveManager {
     renderPass.setBindGroup(0, this.renderBindGroup);
     renderPass.setVertexBuffer(0, this.lineVerticesBuffer!);
 
-    // Draw ALL vertices - shader handles backface culling
+    // Calculate vertices based on adaptive LOD (must match tessellation logic)
     const flightCount = this.flightManager.getVisibleFlightCount();
-    const verticesPerCurve = this.segmentsPerCurve * 2; // line-list: 2 vertices per segment
+    const { activeSegments } = this.calculateLOD(flightCount);
+
+    const verticesPerCurve = activeSegments * 2; // line-list: 2 vertices per segment
     const totalVertices = flightCount * verticesPerCurve;
 
     renderPass.draw(totalVertices, 1, 0, 0);
