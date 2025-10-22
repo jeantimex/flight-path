@@ -81,7 +81,9 @@ const FLAG_VISIBLE: u32 = 2u;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
-  let flightIndex = globalId.x;
+  // Calculate linear thread index from 2D dispatch
+  // For 2D dispatch (X, Y, 1), thread index = Y * maxWorkgroupsPerDim * workgroupSize + X
+  let flightIndex = globalId.y * 65535u * 64u + globalId.x;
 
   // Bounds check
   if (flightIndex >= arrayLength(&flightStates)) {

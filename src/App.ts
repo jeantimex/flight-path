@@ -19,6 +19,7 @@ import { FlightManager } from './flights/FlightManager.ts';
 import { PlanesWebGPU } from './planes/PlanesWebGPU.ts';
 import { CurveManager } from './curves/CurveManager.ts';
 import { createAtlas } from './core/AtlasLoader.ts';
+import { ControlsWebGPU } from './managers/ControlsWebGPU.ts';
 
 const EARTH_RADIUS = 3000;
 const BASE_URL = import.meta.env.BASE_URL;
@@ -34,6 +35,7 @@ export class WebGPUApp {
   private flightManager: FlightManager | null = null;
   private planes: PlanesWebGPU | null = null;
   private curves: CurveManager | null = null;
+  private guiControls: ControlsWebGPU | null = null;
   private earthTextureLoaded = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
@@ -130,8 +132,9 @@ export class WebGPUApp {
       console.log('✅ Atmosphere initialized');
 
       // Initialize Flight Manager
+      // Pre-allocate for 1M flights, start with 1K visible
       this.flightManager = new FlightManager(this.gpuContext.device, {
-        flightCount: 1000, // Start with 1K flights for testing
+        flightCount: 1000, // Initial visible count
         earthRadius: EARTH_RADIUS,
         minAltitude: 30,
         maxAltitude: 220,
@@ -139,7 +142,7 @@ export class WebGPUApp {
       });
       this.flightManager.createPipeline();
 
-      console.log('✅ Flight Manager initialized');
+      console.log(`✅ Flight Manager initialized (1M allocated, ${this.flightManager.getVisibleFlightCount()} visible)`);
 
       // Initialize Planes
       this.planes = new PlanesWebGPU(this.gpuContext.device, {
@@ -181,6 +184,21 @@ export class WebGPUApp {
       this.curves.createRenderPipeline(this.gpuContext.presentationFormat);
 
       console.log('✅ Curves initialized');
+
+      // Initialize GUI controls
+      this.guiControls = new ControlsWebGPU({
+        onFlightCountChange: (count: number) => {
+          if (this.flightManager) {
+            this.flightManager.setVisibleFlightCount(count);
+          }
+        },
+      });
+      this.guiControls.setPlanes(this.planes);
+      this.guiControls.setCurves(this.curves);
+      this.guiControls.setFlightManager(this.flightManager);
+      this.guiControls.setAtmosphere(this.atmosphere);
+
+      console.log('✅ GUI controls initialized');
 
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
@@ -335,6 +353,10 @@ export class WebGPUApp {
 
     if (this.curves) {
       this.curves.destroy();
+    }
+
+    if (this.guiControls) {
+      this.guiControls.destroy();
     }
 
     if (this.gpuContext) {

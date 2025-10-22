@@ -33,6 +33,9 @@ export class AtmosphereWebGPU {
   private modelMatrix: mat4;
   private normalMatrix: mat4;
 
+  // Visibility
+  private atmosphereVisible: boolean = true;
+
   // Reusable uniform data
   private uniformData: Float32Array;
 
@@ -175,6 +178,10 @@ export class AtmosphereWebGPU {
       return; // Pipeline not ready
     }
 
+    if (!this.atmosphereVisible) {
+      return; // Atmosphere hidden
+    }
+
     // Update uniforms (reusing pre-allocated buffer)
     // viewProjectionMatrix (16 floats)
     this.uniformData.set(camera.viewProjectionMatrix, 0);
@@ -196,6 +203,10 @@ export class AtmosphereWebGPU {
     renderPass.setVertexBuffer(0, this.vertexBuffer);
     renderPass.setIndexBuffer(this.indexBuffer, 'uint32');
     renderPass.drawIndexed(this.geometry.indexCount);
+  }
+
+  public setAtmosphereVisible(visible: boolean): void {
+    this.atmosphereVisible = visible;
   }
 
   public destroy(): void {

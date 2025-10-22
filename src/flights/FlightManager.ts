@@ -15,7 +15,8 @@ export interface FlightManagerConfig {
 
 export class FlightManager {
   private device: GPUDevice;
-  private flightCount: number;
+  private flightCount: number; // Total allocated
+  private visibleFlightCount: number; // Currently visible/active
   private earthRadius: number;
   private minAltitude: number;
   private maxAltitude: number;
@@ -36,7 +37,9 @@ export class FlightManager {
 
   constructor(device: GPUDevice, config: FlightManagerConfig = {}) {
     this.device = device;
-    this.flightCount = config.flightCount ?? 1000; // Start small for testing
+    // Always allocate for 1M flights (Option B: pre-allocate max)
+    this.flightCount = 1000000;
+    this.visibleFlightCount = config.flightCount ?? 1000; // Start with 1K visible
     this.earthRadius = config.earthRadius ?? 3000;
     this.minAltitude = config.minAltitude ?? 30;
     this.maxAltitude = config.maxAltitude ?? 220;
@@ -337,9 +340,20 @@ export class FlightManager {
     computePass.setPipeline(this.computePipeline);
     computePass.setBindGroup(0, this.bindGroup);
 
-    // Dispatch workgroups: flightCount / 64 threads per workgroup
-    const workgroupCount = Math.ceil(this.flightCount / 64);
-    computePass.dispatchWorkgroups(workgroupCount);
+    // Dispatch workgroups: visibleFlightCount / 64 threads per workgroup
+    // WebGPU limit: max 65535 workgroups per dimension
+    const workgroupCount = Math.ceil(this.visibleFlightCount / 64);
+    const maxWorkgroupsPerDim = 65535;
+
+    if (workgroupCount <= maxWorkgroupsPerDim) {
+      // Simple 1D dispatch
+      computePass.dispatchWorkgroups(workgroupCount);
+    } else {
+      // 2D dispatch for large counts
+      const x = maxWorkgroupsPerDim;
+      const y = Math.ceil(workgroupCount / maxWorkgroupsPerDim);
+      computePass.dispatchWorkgroups(x, y, 1);
+    }
 
     computePass.end();
   }
@@ -358,6 +372,14 @@ export class FlightManager {
 
   public getFlightCount(): number {
     return this.flightCount;
+  }
+
+  public getVisibleFlightCount(): number {
+    return this.visibleFlightCount;
+  }
+
+  public setVisibleFlightCount(count: number): void {
+    this.visibleFlightCount = Math.max(1, Math.min(count, this.flightCount));
   }
 
   public destroy(): void {

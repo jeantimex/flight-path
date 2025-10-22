@@ -288,7 +288,7 @@ export class PlanesWebGPU {
     // Render instanced planes
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
-    renderPass.draw(4, this.flightManager.getFlightCount()); // 4 vertices per quad, N instances
+    renderPass.draw(4, this.flightManager.getVisibleFlightCount()); // 4 vertices per quad, visible instances only
   }
 
   public setPlanesVisible(visible: boolean): void {

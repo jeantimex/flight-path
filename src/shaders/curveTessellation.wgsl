@@ -72,7 +72,9 @@ fn unpackColor(packed: u32) -> vec3<f32> {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
-  let vertexIndex = globalId.x;
+  // Calculate linear thread index from 2D dispatch
+  // For 2D dispatch (X, Y, 1), thread index = Y * maxWorkgroupsPerDim * workgroupSize + X
+  let vertexIndex = globalId.y * 65535u * 64u + globalId.x;
 
   // Calculate which flight and which segment this vertex belongs to
   let segmentsPerCurve = uniforms.segmentsPerCurve;

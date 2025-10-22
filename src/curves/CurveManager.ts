@@ -253,17 +253,32 @@ export class CurveManager {
     computePass.setBindGroup(0, this.computeBindGroup);
 
     // Dispatch workgroups: totalVertices / 64 threads per workgroup
-    const flightCount = this.flightManager.getFlightCount();
+    // WebGPU limit: max 65535 workgroups per dimension
+    // Only tessellate visible flights
+    const flightCount = this.flightManager.getVisibleFlightCount();
     const verticesPerCurve = this.segmentsPerCurve + 1;
     const totalVertices = flightCount * verticesPerCurve;
     const workgroupCount = Math.ceil(totalVertices / 64);
-    computePass.dispatchWorkgroups(workgroupCount);
+    const maxWorkgroupsPerDim = 65535;
+
+    let dispatchX: number, dispatchY: number;
+    if (workgroupCount <= maxWorkgroupsPerDim) {
+      // Simple 1D dispatch
+      dispatchX = workgroupCount;
+      dispatchY = 1;
+      computePass.dispatchWorkgroups(dispatchX);
+    } else {
+      // 2D dispatch for large counts
+      dispatchX = maxWorkgroupsPerDim;
+      dispatchY = Math.ceil(workgroupCount / maxWorkgroupsPerDim);
+      computePass.dispatchWorkgroups(dispatchX, dispatchY, 1);
+    }
 
     computePass.end();
 
     // Log once
     if (this.tessellateCount === 0) {
-      console.log(`✅ Curve tessellation running (${flightCount} curves, ${totalVertices} vertices, ${workgroupCount} workgroups)`);
+      console.log(`✅ Curve tessellation running (${flightCount} curves, ${totalVertices} vertices, ${workgroupCount} workgroups in ${dispatchX}×${dispatchY} grid)`);
     }
     this.tessellateCount++;
   }
@@ -282,7 +297,8 @@ export class CurveManager {
     renderPass.setBindGroup(0, this.renderBindGroup);
     renderPass.setVertexBuffer(0, this.lineVerticesBuffer!);
 
-    const flightCount = this.flightManager.getFlightCount();
+    // Only render visible flights
+    const flightCount = this.flightManager.getVisibleFlightCount();
     const verticesPerCurve = this.segmentsPerCurve + 1;
 
     // Draw each curve as a separate line-strip
