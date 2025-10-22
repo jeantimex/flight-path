@@ -89,7 +89,7 @@ export class ControlsWebGPU {
 
       // Plane Controls
       planeSize: 100,
-      animationSpeed: 0.1,
+      animationSpeed: 1.0,
       elevationOffset: 15,
       planeStyle: 'SVG',
       hidePlane: false,
@@ -363,7 +363,7 @@ export class ControlsWebGPU {
 
     // Animation Speed
     planeFolder
-      .add(this.params, 'animationSpeed', 0.01, 1.0, 0.01)
+      .add(this.params, 'animationSpeed', 0.01, 2.0, 0.01)
       .name('Animation Speed')
       .onChange((value: number) => {
         if (this.flightManager) {

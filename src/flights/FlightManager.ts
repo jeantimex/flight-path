@@ -254,7 +254,7 @@ export class FlightManager {
       // Flight state
       const stateDataF32 = new Float32Array(flightStateData.buffer, stateOffset * 4, 2);
       stateDataF32[0] = Math.random(); // t: random start position
-      stateDataF32[1] = 0.05 + Math.random() * 0.15; // speed: 0.05 to 0.2 (original speed)
+      stateDataF32[1] = 0.5 + Math.random(); // speed: 0.5 to 1.5 (centered at 1.0)
 
       // Packed color (RGBA8)
       const r = Math.floor(Math.random() * 256);
