@@ -4,6 +4,7 @@
  */
 
 import flightUpdateShader from '../shaders/flightUpdate.wgsl?raw';
+import type { Geolocation, Flight as FlightData } from '../common/Data.ts';
 
 export interface FlightManagerConfig {
   flightCount?: number;
@@ -11,6 +12,7 @@ export interface FlightManagerConfig {
   minAltitude?: number;
   maxAltitude?: number;
   planeTextureCount?: number; // Number of plane textures in atlas
+  flightData?: FlightData[];
 }
 
 export class FlightManager {
@@ -21,6 +23,7 @@ export class FlightManager {
   private minAltitude: number;
   private maxAltitude: number;
   private planeTextureCount: number;
+  private flightData: FlightData[];
 
   // Uniform buffer size constant
   private static readonly UNIFORM_BUFFER_SIZE = 64; // deltaTime + earthRadius + animationSpeed + cullingDistance + cameraPosition + frameNumber + cameraDirection + segmentsPerCurve + decimation + pad
@@ -45,7 +48,7 @@ export class FlightManager {
   private uniformData: Float32Array;
 
   // Animation speed control
-  private animationSpeed: number = 0.1;
+  private animationSpeed: number = 1.0; // Default 1.0 (matches GUI 0.1 * 10x scaling)
 
   // Frame counter for temporal updates
   private frameNumber: number = 0;
@@ -59,6 +62,7 @@ export class FlightManager {
     this.minAltitude = config.minAltitude ?? 30;
     this.maxAltitude = config.maxAltitude ?? 220;
     this.planeTextureCount = config.planeTextureCount ?? 1;
+    this.flightData = config.flightData ?? [];
 
     // Allocate uniform data buffer (reused every frame)
     // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) + cameraDirection (12) + segmentsPerCurve (4) + decimation (4) + pad (8) = 64 bytes
@@ -76,10 +80,10 @@ export class FlightManager {
   }
 
   private createBuffers(): void {
-    // Control Points Buffer (48MB for 1M flights)
-    // 4 control points × vec3 (12 bytes) = 48 bytes per flight
-    // Aligned to 16 bytes: 4 × vec4 (16 bytes) = 64 bytes per flight
-    const controlPointsSize = this.flightCount * 64;
+    // Control Points Buffer (144MB for 1M flights)
+    // 9 control points × vec3 (12 bytes) = 108 bytes per flight
+    // Aligned to 16 bytes: 9 × vec4 (16 bytes) = 144 bytes per flight
+    const controlPointsSize = this.flightCount * 144;
     this.controlPointsBuffer = this.device.createBuffer({
       size: controlPointsSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -137,100 +141,216 @@ export class FlightManager {
       z: a.x * b.y - a.y * b.x,
     });
 
-    // Generate random control points for Catmull-Rom curves
-    const controlPointsData = new Float32Array(this.flightCount * 16); // 4 vec4 per flight
+    // Generate control points for parabolic curves (9 points)
+    const controlPointsData = new Float32Array(this.flightCount * 36); // 9 vec4 per flight
 
     // Generate random flight states
     const flightStateData = new Uint32Array(this.flightCount * 4); // 4 u32 per flight
 
     for (let i = 0; i < this.flightCount; i++) {
-      const cpOffset = i * 16;
+      const cpOffset = i * 36;
       const stateOffset = i * 4;
 
-      // Generate random start and end points on sphere
-      const start = this.randomPointOnSphere();
-      const end = this.randomPointOnSphere();
+      // Use city data if available, otherwise random points
+      let p0, p1, p2, p3, p4, p5, p6, p7, p8;
 
-      // Generate 4 control points for Catmull-Rom curve with visible curvature
-      // Strategy: Create lateral bulge perpendicular to great circle path
-      // This makes curves deviate from geodesic, creating visible arcs
+      if (this.flightData.length > 0) {
+        // City-to-city flight: use 9-point parabolic arc (matches main branch)
+        // Randomize selection across entire dataset for geographic diversity
+        const flightIndex = Math.floor(Math.random() * this.flightData.length);
+        const flight = this.flightData[flightIndex];
 
-      const altitude = this.earthRadius + this.minAltitude +
-                      Math.random() * (this.maxAltitude - this.minAltitude);
+        const departure = this.latLngToVector3(flight.departure.lat, flight.departure.lng, this.earthRadius);
+        const arrival = this.latLngToVector3(flight.arrival.lat, flight.arrival.lng, this.earthRadius);
 
-      // Normalize start and end points
-      const startNorm = normalize(start);
-      const endNorm = normalize(end);
+        // Calculate distance and cruise altitude (matches main branch logic)
+        const dx = arrival.x - departure.x;
+        const dy = arrival.y - departure.y;
+        const dz = arrival.z - departure.z;
+        const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        const maxDistance = this.earthRadius * Math.PI;
+        const distanceRatio = Math.min(distance / (maxDistance * 0.3), 1);
+        const cruiseAltitude = this.minAltitude + (this.maxAltitude - this.minAltitude) * Math.pow(distanceRatio, 0.7);
 
-      // p1: start point at cruise altitude
-      const p1 = {
-        x: startNorm.x * altitude,
-        y: startNorm.y * altitude,
-        z: startNorm.z * altitude,
-      };
+        // Copy exact logic from main branch (FlightUtils.ts generateParabolicControlPoints)
+        const depNorm = normalize(departure);
+        const arrNorm = normalize(arrival);
 
-      // p2: end point at cruise altitude
-      const p2 = {
-        x: endNorm.x * altitude,
-        y: endNorm.y * altitude,
-        z: endNorm.z * altitude,
-      };
-
-      // Calculate perpendicular direction for bulge (cross product of start and end)
-      const perp = cross(startNorm, endNorm);
-      const perpMag = magnitude(perp);
-
-      // Random bulge amount for visible curvature
-      const bulgeAmount = (BULGE_MIN + Math.random() * (BULGE_MAX - BULGE_MIN)) * altitude;
-
-      // Random bulge direction (50% chance to bulge left or right)
-      const bulgeDir = Math.random() > 0.5 ? 1 : -1;
-
-      let bulge: { x: number; y: number; z: number };
-      if (perpMag > EPSILON) {
-        // Normal case: add perpendicular bulge
-        const perpNorm = normalize(perp);
-        bulge = {
-          x: perpNorm.x * bulgeAmount * bulgeDir,
-          y: perpNorm.y * bulgeAmount * bulgeDir,
-          z: perpNorm.z * bulgeAmount * bulgeDir,
+        // Helper: lerp + normalize + scale (matches main's Three.js .lerp().normalize().multiplyScalar())
+        const lerpNormScale = (a: {x: number, y: number, z: number}, b: {x: number, y: number, z: number}, t: number, scale: number) => {
+          const lerped = { x: a.x * (1-t) + b.x * t, y: a.y * (1-t) + b.y * t, z: a.z * (1-t) + b.z * t };
+          const norm = normalize(lerped);
+          return { x: norm.x * scale, y: norm.y * scale, z: norm.z * scale };
         };
+
+        // p1: startSurface - at minimum altitude
+        p1 = {
+          x: depNorm.x * (this.earthRadius + this.minAltitude),
+          y: depNorm.y * (this.earthRadius + this.minAltitude),
+          z: depNorm.z * (this.earthRadius + this.minAltitude),
+        };
+
+        // p7: endSurface - at minimum altitude
+        p7 = {
+          x: arrNorm.x * (this.earthRadius + this.minAltitude),
+          y: arrNorm.y * (this.earthRadius + this.minAltitude),
+          z: arrNorm.z * (this.earthRadius + this.minAltitude),
+        };
+
+        // p2: climbPoint1 (20% along, 40% altitude)
+        p2 = lerpNormScale(p1, p7, 0.20, this.earthRadius + cruiseAltitude * 0.40);
+
+        // p3: climbPoint2 (35% along, 75% altitude)
+        p3 = lerpNormScale(p1, p7, 0.35, this.earthRadius + cruiseAltitude * 0.75);
+
+        // p4: cruisePeak (50% along, 85% altitude)
+        p4 = lerpNormScale(p1, p7, 0.50, this.earthRadius + cruiseAltitude * 0.85);
+
+        // p5: descentPoint1 (65% along, 75% altitude)
+        p5 = lerpNormScale(p1, p7, 0.65, this.earthRadius + cruiseAltitude * 0.75);
+
+        // p6: descentPoint2 (80% along, 40% altitude)
+        p6 = lerpNormScale(p1, p7, 0.80, this.earthRadius + cruiseAltitude * 0.40);
+
+        // p0: startTangentPoint - main's tangent calculation
+        const startNormal = depNorm;
+        let pathDirStart = { x: dx, y: dy, z: dz };
+        const dotStart = pathDirStart.x * startNormal.x + pathDirStart.y * startNormal.y + pathDirStart.z * startNormal.z;
+        let tangentStart = {
+          x: pathDirStart.x - startNormal.x * dotStart,
+          y: pathDirStart.y - startNormal.y * dotStart,
+          z: pathDirStart.z - startNormal.z * dotStart,
+        };
+        const tangentStartMag = Math.sqrt(tangentStart.x**2 + tangentStart.y**2 + tangentStart.z**2);
+        if (tangentStartMag > 1e-6) {
+          tangentStart = { x: tangentStart.x / tangentStartMag, y: tangentStart.y / tangentStartMag, z: tangentStart.z / tangentStartMag };
+        } else {
+          tangentStart = { x: 1, y: 0, z: 0 };
+        }
+        const tangentDistance = this.earthRadius * 0.08;
+        const p0Temp = {
+          x: p1.x + tangentStart.x * tangentDistance,
+          y: p1.y + tangentStart.y * tangentDistance,
+          z: p1.z + tangentStart.z * tangentDistance,
+        };
+        const p0Norm = normalize(p0Temp);
+        const surfaceLength = Math.sqrt(p1.x**2 + p1.y**2 + p1.z**2);
+        p0 = { x: p0Norm.x * surfaceLength, y: p0Norm.y * surfaceLength, z: p0Norm.z * surfaceLength };
+
+        // p8: endTangentPoint - main's tangent calculation
+        const endNormal = arrNorm;
+        let pathDirEnd = { x: -dx, y: -dy, z: -dz };
+        const dotEnd = pathDirEnd.x * endNormal.x + pathDirEnd.y * endNormal.y + pathDirEnd.z * endNormal.z;
+        let tangentEnd = {
+          x: pathDirEnd.x - endNormal.x * dotEnd,
+          y: pathDirEnd.y - endNormal.y * dotEnd,
+          z: pathDirEnd.z - endNormal.z * dotEnd,
+        };
+        const tangentEndMag = Math.sqrt(tangentEnd.x**2 + tangentEnd.y**2 + tangentEnd.z**2);
+        if (tangentEndMag > 1e-6) {
+          tangentEnd = { x: tangentEnd.x / tangentEndMag, y: tangentEnd.y / tangentEndMag, z: tangentEnd.z / tangentEndMag };
+        } else {
+          tangentEnd = { x: 1, y: 0, z: 0 };
+        }
+        const p8Temp = {
+          x: p7.x + tangentEnd.x * tangentDistance,
+          y: p7.y + tangentEnd.y * tangentDistance,
+          z: p7.z + tangentEnd.z * tangentDistance,
+        };
+        const p8Norm = normalize(p8Temp);
+        const endSurfaceLength = Math.sqrt(p7.x**2 + p7.y**2 + p7.z**2);
+        p8 = { x: p8Norm.x * endSurfaceLength, y: p8Norm.y * endSurfaceLength, z: p8Norm.z * endSurfaceLength };
       } else {
-        // Edge case: start and end are opposite points, use arbitrary perpendicular
-        bulge = {
-          x: altitude * FALLBACK_BULGE,
-          y: altitude * FALLBACK_BULGE,
-          z: 0,
+        // Random flight: expand to 9 points for consistency
+        const start = this.randomPointOnSphere();
+        const end = this.randomPointOnSphere();
+
+        const altitude = this.earthRadius + this.minAltitude +
+                        Math.random() * (this.maxAltitude - this.minAltitude);
+
+        // Normalize start and end points
+        const startNorm = normalize(start);
+        const endNorm = normalize(end);
+
+        // Helper: lerp + normalize + scale
+        const lerpNormScale = (a: {x: number, y: number, z: number}, b: {x: number, y: number, z: number}, t: number, scale: number) => {
+          const lerped = { x: a.x * (1-t) + b.x * t, y: a.y * (1-t) + b.y * t, z: a.z * (1-t) + b.z * t };
+          const norm = normalize(lerped);
+          return { x: norm.x * scale, y: norm.y * scale, z: norm.z * scale };
         };
+
+        // p1: start point at min altitude
+        p1 = {
+          x: startNorm.x * (this.earthRadius + this.minAltitude),
+          y: startNorm.y * (this.earthRadius + this.minAltitude),
+          z: startNorm.z * (this.earthRadius + this.minAltitude),
+        };
+
+        // p7: end point at min altitude
+        p7 = {
+          x: endNorm.x * (this.earthRadius + this.minAltitude),
+          y: endNorm.y * (this.earthRadius + this.minAltitude),
+          z: endNorm.z * (this.earthRadius + this.minAltitude),
+        };
+
+        // Create parabolic arc with 9 points
+        p2 = lerpNormScale(p1, p7, 0.20, this.earthRadius + altitude * 0.40);
+        p3 = lerpNormScale(p1, p7, 0.35, this.earthRadius + altitude * 0.75);
+        p4 = lerpNormScale(p1, p7, 0.50, this.earthRadius + altitude * 0.85);
+        p5 = lerpNormScale(p1, p7, 0.65, this.earthRadius + altitude * 0.75);
+        p6 = lerpNormScale(p1, p7, 0.80, this.earthRadius + altitude * 0.40);
+
+        // Calculate perpendicular direction for tangent points
+        const perp = cross(startNorm, endNorm);
+        const perpMag = magnitude(perp);
+
+        // Tangent extension distance
+        const tangentDistance = this.earthRadius * 0.08;
+
+        // p0: tangent before start
+        if (perpMag > EPSILON) {
+          const perpNorm = normalize(perp);
+          const tangentDir = {
+            x: -startNorm.x * 0.5 + perpNorm.x * 0.3,
+            y: -startNorm.y * 0.5 + perpNorm.y * 0.3,
+            z: -startNorm.z * 0.5 + perpNorm.z * 0.3,
+          };
+          const tangentNorm = normalize(tangentDir);
+          const p0Temp = {
+            x: p1.x + tangentNorm.x * tangentDistance,
+            y: p1.y + tangentNorm.y * tangentDistance,
+            z: p1.z + tangentNorm.z * tangentDistance,
+          };
+          const p0Norm = normalize(p0Temp);
+          const surfaceLength = Math.sqrt(p1.x**2 + p1.y**2 + p1.z**2);
+          p0 = { x: p0Norm.x * surfaceLength, y: p0Norm.y * surfaceLength, z: p0Norm.z * surfaceLength };
+        } else {
+          p0 = p1;
+        }
+
+        // p8: tangent after end
+        if (perpMag > EPSILON) {
+          const perpNorm = normalize(perp);
+          const tangentDir = {
+            x: endNorm.x * 0.5 + perpNorm.x * 0.3,
+            y: endNorm.y * 0.5 + perpNorm.y * 0.3,
+            z: endNorm.z * 0.5 + perpNorm.z * 0.3,
+          };
+          const tangentNorm = normalize(tangentDir);
+          const p8Temp = {
+            x: p7.x + tangentNorm.x * tangentDistance,
+            y: p7.y + tangentNorm.y * tangentDistance,
+            z: p7.z + tangentNorm.z * tangentDistance,
+          };
+          const p8Norm = normalize(p8Temp);
+          const endSurfaceLength = Math.sqrt(p7.x**2 + p7.y**2 + p7.z**2);
+          p8 = { x: p8Norm.x * endSurfaceLength, y: p8Norm.y * endSurfaceLength, z: p8Norm.z * endSurfaceLength };
+        } else {
+          p8 = p7;
+        }
       }
 
-      // p0: position before p1, with bulge to create curved entry
-      const p0_unnorm = {
-        x: startNorm.x - (endNorm.x - startNorm.x) * TANGENT_EXTENSION + bulge.x * BULGE_INFLUENCE,
-        y: startNorm.y - (endNorm.y - startNorm.y) * TANGENT_EXTENSION + bulge.y * BULGE_INFLUENCE,
-        z: startNorm.z - (endNorm.z - startNorm.z) * TANGENT_EXTENSION + bulge.z * BULGE_INFLUENCE,
-      };
-      const p0Norm = normalize(p0_unnorm);
-      const p0 = {
-        x: p0Norm.x * altitude,
-        y: p0Norm.y * altitude,
-        z: p0Norm.z * altitude,
-      };
-
-      // p3: position after p2, with bulge to create curved exit
-      const p3_unnorm = {
-        x: endNorm.x + (endNorm.x - startNorm.x) * TANGENT_EXTENSION + bulge.x * BULGE_INFLUENCE,
-        y: endNorm.y + (endNorm.y - startNorm.y) * TANGENT_EXTENSION + bulge.y * BULGE_INFLUENCE,
-        z: endNorm.z + (endNorm.z - startNorm.z) * TANGENT_EXTENSION + bulge.z * BULGE_INFLUENCE,
-      };
-      const p3Norm = normalize(p3_unnorm);
-      const p3 = {
-        x: p3Norm.x * altitude,
-        y: p3Norm.y * altitude,
-        z: p3Norm.z * altitude,
-      };
-
-      // Store control points (vec4 aligned)
+      // Store all 9 control points (vec4 aligned)
       controlPointsData[cpOffset + 0] = p0.x;
       controlPointsData[cpOffset + 1] = p0.y;
       controlPointsData[cpOffset + 2] = p0.z;
@@ -250,6 +370,31 @@ export class FlightManager {
       controlPointsData[cpOffset + 13] = p3.y;
       controlPointsData[cpOffset + 14] = p3.z;
       controlPointsData[cpOffset + 15] = 0; // pad
+
+      controlPointsData[cpOffset + 16] = p4.x;
+      controlPointsData[cpOffset + 17] = p4.y;
+      controlPointsData[cpOffset + 18] = p4.z;
+      controlPointsData[cpOffset + 19] = 0; // pad
+
+      controlPointsData[cpOffset + 20] = p5.x;
+      controlPointsData[cpOffset + 21] = p5.y;
+      controlPointsData[cpOffset + 22] = p5.z;
+      controlPointsData[cpOffset + 23] = 0; // pad
+
+      controlPointsData[cpOffset + 24] = p6.x;
+      controlPointsData[cpOffset + 25] = p6.y;
+      controlPointsData[cpOffset + 26] = p6.z;
+      controlPointsData[cpOffset + 27] = 0; // pad
+
+      controlPointsData[cpOffset + 28] = p7.x;
+      controlPointsData[cpOffset + 29] = p7.y;
+      controlPointsData[cpOffset + 30] = p7.z;
+      controlPointsData[cpOffset + 31] = 0; // pad
+
+      controlPointsData[cpOffset + 32] = p8.x;
+      controlPointsData[cpOffset + 33] = p8.y;
+      controlPointsData[cpOffset + 34] = p8.z;
+      controlPointsData[cpOffset + 35] = 0; // pad
 
       // Flight state
       const stateDataF32 = new Float32Array(flightStateData.buffer, stateOffset * 4, 2);
@@ -287,6 +432,24 @@ export class FlightManager {
     const z = this.earthRadius * Math.cos(phi);
 
     return { x, y, z };
+  }
+
+  private latLngToVector3(lat: number, lng: number, radius: number): { x: number; y: number; z: number } {
+    // Convert lat/lng to 3D point (matches main branch Utils.latLngToVector3)
+    const phi = ((90 - lat) * Math.PI) / 180;
+    const theta = ((-lng + 180) * Math.PI) / 180;
+
+    // Standard spherical to cartesian
+    const x = radius * Math.sin(phi) * Math.cos(theta);
+    const y = radius * Math.cos(phi);
+    const z = radius * Math.sin(phi) * Math.sin(theta);
+
+    // Apply coordinate transformation for Earth's -90° Y rotation
+    const rotatedX = z;
+    const rotatedY = y;
+    const rotatedZ = -x;
+
+    return { x: rotatedX, y: rotatedY, z: rotatedZ };
   }
 
   public createPipeline(): void {

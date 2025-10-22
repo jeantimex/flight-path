@@ -79,7 +79,7 @@ export class ControlsWebGPU {
       dayBrightness: 80,
 
       // Flight Controls
-      numFlights: 1000,
+      numFlights: 5000,
       returnFlight: true,
 
       // Flight Path
@@ -249,9 +249,9 @@ export class ControlsWebGPU {
   private setupFlightControls(): void {
     const flightFolder = this.gui.addFolder('Flight Controls');
 
-    // Flight count slider (1K to 1M) - works in real-time with debouncing
+    // Flight count slider (1 to 1M) - works in real-time with debouncing
     flightFolder
-      .add(this.params, 'numFlights', 1000, 1000000, 1000)
+      .add(this.params, 'numFlights', 1, 1000000, 1000)
       .name('Number of Flights')
       .onChange((value: number) => {
         // Debounce slider changes (100ms delay)
@@ -278,9 +278,9 @@ export class ControlsWebGPU {
   private setupFlightPathControls(): void {
     const pathFolder = this.gui.addFolder('Flight Path');
 
-    // Dash Size (0-100)
+    // Dash Size (0-2000)
     pathFolder
-      .add(this.params, 'dashSize', 0, 100, 1)
+      .add(this.params, 'dashSize', 0, 2000, 1)
       .name('Dash Size')
       .onChange((value: number) => {
         if (this.curves) {
@@ -288,9 +288,9 @@ export class ControlsWebGPU {
         }
       });
 
-    // Gap Size (0-100)
+    // Gap Size (0-2000)
     pathFolder
-      .add(this.params, 'gapSize', 0, 100, 1)
+      .add(this.params, 'gapSize', 0, 2000, 1)
       .name('Gap Size')
       .onChange((value: number) => {
         if (this.curves) {
@@ -316,7 +316,7 @@ export class ControlsWebGPU {
     const planeFolder = this.gui.addFolder('Plane Controls');
 
     planeFolder
-      .add(this.params, 'planeSize', 1, 200, 1)
+      .add(this.params, 'planeSize', 5, 500, 1)
       .name('Plane Size')
       .onChange((value: number) => {
         const baseSize = value / 10; // Convert 100 scale to 10 base
@@ -365,12 +365,12 @@ export class ControlsWebGPU {
       this.planeColorController.domElement.style.opacity = '0.5';
     }
 
-    // Animation Speed (GUI shows 0.01-1.0, scaled 10x for actual speed)
+    // Animation Speed (GUI shows 0.01-0.5, scaled 10x for actual speed) - matches main
     planeFolder
-      .add(this.params, 'animationSpeed', 0.01, 1.0, 0.01)
+      .add(this.params, 'animationSpeed', 0.01, 0.5, 0.01)
       .name('Animation Speed')
       .onChange((value: number) => {
-        // Scale speed by 10x (0.1 GUI = 1.0 actual, 1.0 GUI = 10.0 actual)
+        // Scale speed by 10x (0.1 GUI = 1.0 actual, 0.5 GUI = 5.0 actual)
         const actualSpeed = value * 10;
         if (this.flightManager) {
           this.flightManager.setAnimationSpeed(actualSpeed);
@@ -429,6 +429,8 @@ export class ControlsWebGPU {
 
   public setCurves(curves: CurveManager): void {
     this.curves = curves;
+    // Apply initial dash pattern from params
+    curves.setDashPattern(this.params.dashSize, this.params.gapSize);
   }
 
   public setFlightManager(flightManager: FlightManager): void {

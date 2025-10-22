@@ -22,16 +22,26 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
-// Control points (read-only)
+// Control points (read-only) - 9 points for parabolic curve (matches main branch)
 struct ControlPoints {
-  p0: vec3<f32>,
+  p0: vec3<f32>,  // startTangentPoint
   _pad0: f32,
-  p1: vec3<f32>,
+  p1: vec3<f32>,  // startSurface
   _pad1: f32,
-  p2: vec3<f32>,
+  p2: vec3<f32>,  // climbPoint1
   _pad2: f32,
-  p3: vec3<f32>,
+  p3: vec3<f32>,  // climbPoint2
   _pad3: f32,
+  p4: vec3<f32>,  // cruisePeak
+  _pad4: f32,
+  p5: vec3<f32>,  // descentPoint1
+  _pad5: f32,
+  p6: vec3<f32>,  // descentPoint2
+  _pad6: f32,
+  p7: vec3<f32>,  // endSurface
+  _pad7: f32,
+  p8: vec3<f32>,  // endTangentPoint
+  _pad8: f32,
 };
 
 @group(0) @binding(1) var<storage, read> controlPoints: array<ControlPoints>;
@@ -66,31 +76,90 @@ struct LineVertex {
 
 @group(0) @binding(4) var<storage, read_write> lineVertices: array<LineVertex>;
 
-// Catmull-Rom curve interpolation
-fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
-  let t2 = t * t;
-  let t3 = t2 * t;
+// Piecewise parabolic interpolation through 9 control points (matches main branch)
+fn parabolicCurve(cp: ControlPoints, t: f32) -> vec3<f32> {
+  // t ranges from 0 to 1, divide into 8 segments
+  // Segment 0: p0 -> p1 (t: 0.000 - 0.125)
+  // Segment 1: p1 -> p2 (t: 0.125 - 0.250)
+  // Segment 2: p2 -> p3 (t: 0.250 - 0.375)
+  // Segment 3: p3 -> p4 (t: 0.375 - 0.500)
+  // Segment 4: p4 -> p5 (t: 0.500 - 0.625)
+  // Segment 5: p5 -> p6 (t: 0.625 - 0.750)
+  // Segment 6: p6 -> p7 (t: 0.750 - 0.875)
+  // Segment 7: p7 -> p8 (t: 0.875 - 1.000)
 
-  // Catmull-Rom basis functions
-  let v0 = -0.5 * t3 + t2 - 0.5 * t;
-  let v1 = 1.5 * t3 - 2.5 * t2 + 1.0;
-  let v2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
-  let v3 = 0.5 * t3 - 0.5 * t2;
+  let segmentT = t * 8.0;
+  let segment = i32(floor(segmentT));
+  let localT = fract(segmentT);
 
-  return p0 * v0 + p1 * v1 + p2 * v2 + p3 * v3;
+  var p_start: vec3<f32>;
+  var p_end: vec3<f32>;
+
+  if (segment == 0) {
+    p_start = cp.p0;
+    p_end = cp.p1;
+  } else if (segment == 1) {
+    p_start = cp.p1;
+    p_end = cp.p2;
+  } else if (segment == 2) {
+    p_start = cp.p2;
+    p_end = cp.p3;
+  } else if (segment == 3) {
+    p_start = cp.p3;
+    p_end = cp.p4;
+  } else if (segment == 4) {
+    p_start = cp.p4;
+    p_end = cp.p5;
+  } else if (segment == 5) {
+    p_start = cp.p5;
+    p_end = cp.p6;
+  } else if (segment == 6) {
+    p_start = cp.p6;
+    p_end = cp.p7;
+  } else {
+    p_start = cp.p7;
+    p_end = cp.p8;
+  }
+
+  // Linear interpolation between points
+  return mix(p_start, p_end, localT);
 }
 
-// Catmull-Rom tangent (first derivative)
-fn catmullRomTangent(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
-  let t2 = t * t;
+// Tangent for parabolic curve
+fn parabolicTangent(cp: ControlPoints, t: f32) -> vec3<f32> {
+  let segmentT = t * 8.0;
+  let segment = i32(floor(segmentT));
 
-  // Derivative of basis functions
-  let v0 = -1.5 * t2 + 2.0 * t - 0.5;
-  let v1 = 4.5 * t2 - 5.0 * t;
-  let v2 = -4.5 * t2 + 4.0 * t + 0.5;
-  let v3 = 1.5 * t2 - t;
+  var p_start: vec3<f32>;
+  var p_end: vec3<f32>;
 
-  return p0 * v0 + p1 * v1 + p2 * v2 + p3 * v3;
+  if (segment == 0) {
+    p_start = cp.p0;
+    p_end = cp.p1;
+  } else if (segment == 1) {
+    p_start = cp.p1;
+    p_end = cp.p2;
+  } else if (segment == 2) {
+    p_start = cp.p2;
+    p_end = cp.p3;
+  } else if (segment == 3) {
+    p_start = cp.p3;
+    p_end = cp.p4;
+  } else if (segment == 4) {
+    p_start = cp.p4;
+    p_end = cp.p5;
+  } else if (segment == 5) {
+    p_start = cp.p5;
+    p_end = cp.p6;
+  } else if (segment == 6) {
+    p_start = cp.p6;
+    p_end = cp.p7;
+  } else {
+    p_start = cp.p7;
+    p_end = cp.p8;
+  }
+
+  return normalize(p_end - p_start);
 }
 
 // Unpack color from u32
@@ -153,10 +222,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   state.t = clamp(newT, 0.0, 1.0);
 
-  // Evaluate Catmull-Rom curve
+  // Evaluate parabolic curve (9 control points)
   let cp = controlPoints[flightIndex];
-  let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
-  let tangent = catmullRomTangent(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
+  let position = parabolicCurve(cp, state.t);
+  let tangent = parabolicTangent(cp, state.t);
 
   // Visibility culling: distance + hemisphere check
   let distanceToCamera = length(position - uniforms.cameraPosition);
@@ -206,10 +275,10 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
       // Calculate arc length for distance
       var totalLength = 0.0;
-      var prevPos = cp.p1; // Start at p1 (actual curve start)
+      var prevPos = cp.p0; // Start at p0 (actual curve start)
       for (var i = 1u; i <= ARC_LENGTH_SAMPLES; i++) {
         let sampleT = f32(i) / f32(ARC_LENGTH_SAMPLES);
-        let samplePos = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, sampleT);
+        let samplePos = parabolicCurve(cp, sampleT);
         totalLength += length(samplePos - prevPos);
         prevPos = samplePos;
       }
@@ -218,7 +287,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
       for (var segIdx = 0u; segIdx < segmentsPerCurve; segIdx++) {
         // Start vertex
         let tStart = f32(segIdx) / f32(segmentsPerCurve);
-        let posStart = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, tStart);
+        let posStart = parabolicCurve(cp, tStart);
         let distStart = tStart * totalLength;
         let gradientStart = 1.0 - abs(tStart - 0.5) * 2.0;
         let colorStart = color * (0.5 + 0.5 * gradientStart);
@@ -230,7 +299,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
         // End vertex
         let tEnd = f32(segIdx + 1u) / f32(segmentsPerCurve);
-        let posEnd = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, tEnd);
+        let posEnd = parabolicCurve(cp, tEnd);
         let distEnd = tEnd * totalLength;
         let gradientEnd = 1.0 - abs(tEnd - 0.5) * 2.0;
         let colorEnd = color * (0.5 + 0.5 * gradientEnd);

@@ -21,6 +21,7 @@ import { PlanesWebGPU } from './planes/PlanesWebGPU.ts';
 import { CurveManager } from './curves/CurveManager.ts';
 import { createAtlas } from './core/AtlasLoader.ts';
 import { ControlsWebGPU } from './managers/ControlsWebGPU.ts';
+import { flights as cityFlightData } from './common/Data.ts';
 
 const EARTH_RADIUS = 3000;
 const BASE_URL = import.meta.env.BASE_URL;
@@ -388,13 +389,14 @@ export class WebGPUApp {
       console.log('✅ Atmosphere initialized');
 
       // Initialize Flight Manager
-      // Pre-allocate for 1M flights, start with 1K visible
+      // Pre-allocate for 1M flights, start with 5K visible (matches main branch)
       this.flightManager = new FlightManager(this.gpuContext.device, {
-        flightCount: 1000, // Initial visible count
+        flightCount: 5000, // Initial visible count (matches main branch)
         earthRadius: EARTH_RADIUS,
-        minAltitude: 5, // Very close to Earth's surface
-        maxAltitude: 20, // Low altitude to align with Earth curvature
+        minAltitude: 30,
+        maxAltitude: 220,
         planeTextureCount: 8, // 8 plane designs in atlas
+        flightData: cityFlightData, // Real city-to-city routes
       });
       this.flightManager.createPipeline();
 
