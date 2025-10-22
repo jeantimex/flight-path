@@ -13,6 +13,7 @@ import {
 import { PerspectiveCamera } from './core/PerspectiveCamera.ts';
 import { OrbitControls } from './core/OrbitControls.ts';
 import { EarthWebGPU } from './space/EarthWebGPU.ts';
+import { StarsWebGPU } from './space/StarsWebGPU.ts';
 
 const EARTH_RADIUS = 3000;
 
@@ -22,6 +23,7 @@ export class WebGPUApp {
   private camera: PerspectiveCamera | null = null;
   private controls: OrbitControls | null = null;
   private earth: EarthWebGPU | null = null;
+  private stars: StarsWebGPU | null = null;
   private earthTextureLoaded = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
@@ -95,6 +97,17 @@ export class WebGPUApp {
 
       console.log('✅ Earth initialized');
 
+      // Initialize Stars
+      this.stars = new StarsWebGPU(this.gpuContext.device, {
+        starCount: 5000,
+        minRadius: 50000,
+        maxRadius: 100000,
+        starSize: 150,
+      });
+      this.stars.createPipeline(this.gpuContext.presentationFormat);
+
+      console.log('✅ Stars initialized');
+
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
 
@@ -131,11 +144,16 @@ export class WebGPUApp {
     this.animationFrameId = requestAnimationFrame(this.frame);
   };
 
-  private render(_deltaTime: number): void {
+  private render(deltaTime: number): void {
     if (!this.gpuContext || !this.camera || !this.controls) return;
 
     // Update camera controls
     this.controls.update();
+
+    // Update stars animation
+    if (this.stars) {
+      this.stars.update(deltaTime);
+    }
 
     const { device, context, depthTextureView } = this.gpuContext;
 
@@ -170,14 +188,18 @@ export class WebGPUApp {
 
     const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
 
-    // Render Earth
+    // Render stars (background, depth write OFF)
+    if (this.stars) {
+      this.stars.render(renderPass, this.camera);
+    }
+
+    // Render Earth (opaque, depth write ON)
     if (this.earth) {
       this.earth.render(renderPass, this.camera);
     }
 
     // TODO: Add more rendering pipelines here
-    // - Stars (background)
-    // - Atmosphere (transparent)
+    // - Atmosphere (transparent, depth write OFF)
     // - Compute pass for curves
     // - Curves
     // - Planes
@@ -200,6 +222,10 @@ export class WebGPUApp {
 
     if (this.earth) {
       this.earth.destroy();
+    }
+
+    if (this.stars) {
+      this.stars.destroy();
     }
 
     if (this.gpuContext) {
