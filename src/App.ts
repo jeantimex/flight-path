@@ -4,6 +4,7 @@
  * (Legacy Three.js version: App.legacy.ts)
  */
 
+import Stats from 'stats.js';
 import {
   initializeWebGPU,
   resizeCanvas,
@@ -42,8 +43,18 @@ export class WebGPUApp {
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
   private loadingScreen: HTMLElement | null = null;
+  private stats: Stats;
 
   constructor() {
+    // Initialize Stats.js for performance monitoring
+    this.stats = new Stats();
+    this.stats.showPanel(0); // 0: fps, 1: ms, 2: mb
+    document.body.appendChild(this.stats.dom);
+    this.stats.dom.style.position = 'absolute';
+    this.stats.dom.style.left = '0px';
+    this.stats.dom.style.top = '0px';
+    this.stats.dom.style.display = 'none'; // Hidden during loading
+
     // Create canvas
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
@@ -102,11 +113,12 @@ export class WebGPUApp {
     document.body.appendChild(loadingDiv);
     this.loadingScreen = loadingDiv;
 
-    // Hide dat.GUI during loading
+    // Hide dat.GUI and Stats during loading
     const guiElements = document.querySelectorAll('.dg.ac');
     guiElements.forEach((el) => {
       (el as HTMLElement).style.display = 'none';
     });
+    this.stats.dom.style.display = 'none';
 
     // Minimum loading time (2 seconds)
     setTimeout(() => {
@@ -129,11 +141,12 @@ export class WebGPUApp {
       this.loadingScreen?.remove();
       this.loadingScreen = null;
 
-      // Show dat.GUI after loading
+      // Show dat.GUI and Stats after loading
       const guiElements = document.querySelectorAll('.dg.ac');
       guiElements.forEach((el) => {
         (el as HTMLElement).style.display = 'block';
       });
+      this.stats.dom.style.display = 'block';
     }, 500);
   }
 
@@ -263,7 +276,7 @@ export class WebGPUApp {
 
       // Initialize Curves
       this.curves = new CurveManager(this.gpuContext.device, {
-        segmentsPerCurve: 32, // 32 segments per curve
+        segmentsPerCurve: 16, // 16 segments per curve (reduced from 32 for performance)
       });
       this.curves.setFlightManager(this.flightManager);
       this.curves.createComputePipeline();
@@ -315,10 +328,16 @@ export class WebGPUApp {
   private frame = (now: number): void => {
     if (!this.gpuContext) return;
 
+    // Begin performance measurement
+    this.stats.begin();
+
     const deltaTime = Math.min((now - this.lastTime) / 1000, 1 / 20); // Cap at 20fps minimum
     this.lastTime = now;
 
     this.render(deltaTime);
+
+    // End performance measurement
+    this.stats.end();
 
     this.animationFrameId = requestAnimationFrame(this.frame);
   };
