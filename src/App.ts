@@ -376,7 +376,7 @@ export class WebGPUApp {
 
       // Initialize Stars
       this.stars = new StarsWebGPU(this.gpuContext.device, {
-        starCount: 25000, // Much more stars with twinkling
+        starCount: 50000, // Much more stars with twinkling
         minRadius: 50000,
         maxRadius: 100000,
         starSize: 150,
@@ -409,7 +409,7 @@ export class WebGPUApp {
 
       // Initialize Planes
       this.planes = new PlanesWebGPU(this.gpuContext.device, {
-        baseSize: 15, // Increased from 10 to match main branch appearance
+        baseSize: 20, // Increased to match main branch appearance
         texturePath: null, // Will load atlas below
       });
       this.planes.setFlightManager(this.flightManager);
