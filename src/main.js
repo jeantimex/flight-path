@@ -7,6 +7,15 @@ const DEFAULT_PLANE_COUNT = 100;
 const DEFAULT_PLANE_SCALE = 20;
 const WORKGROUP_SIZE = 64;
 const CURVE_SEGMENTS = 64;
+const CURVE_LOD_SEGMENTS = [
+  CURVE_SEGMENTS,
+  Math.max(8, Math.floor(CURVE_SEGMENTS / 2)),
+  Math.max(4, Math.floor(CURVE_SEGMENTS / 4)),
+];
+const MAX_CURVE_SEGMENTS = CURVE_LOD_SEGMENTS[0];
+const MAX_CURVE_VERTICES = MAX_CURVE_SEGMENTS + 1;
+const CURVE_LOD_DISTANCES = [4000, 12000];
+const CURVE_CULL_DISTANCE = 20000;
 const CONTROL_POINTS_PER_CURVE = 4;
 let device;
 let context;
@@ -16,9 +25,12 @@ let depthTextureView;
 
 let planeVertexBuffer;
 let planeVertexCount = 0;
-let curveVertexBuffer;
-let curveDraws = [];
+let curveDrawEntries = [];
+let visibleCurves = [];
 let lineSceneBindGroup;
+let lineInstanceBindGroup;
+let curveInstanceBuffer;
+let curveInstanceBufferSize = 0;
 
 let computePipeline;
 let renderPipeline;
@@ -224,18 +236,7 @@ async function createPipelines() {
     vertex: {
       module: lineModule,
       entryPoint: "vs_main",
-      buffers: [
-        {
-          arrayStride: 12,
-          attributes: [
-            {
-              shaderLocation: 0,
-              offset: 0,
-              format: "float32x3",
-            },
-          ],
-        },
-      ],
+      buffers: [],
     },
     fragment: {
       module: lineModule,
@@ -313,11 +314,14 @@ function setupGUI() {
 }
 
 function disposeCurveResources() {
-  if (curveVertexBuffer) {
-    curveVertexBuffer.destroy();
-    curveVertexBuffer = null;
+  if (curveInstanceBuffer) {
+    curveInstanceBuffer.destroy();
+    curveInstanceBuffer = null;
+    curveInstanceBufferSize = 0;
   }
-  curveDraws = [];
+  curveDrawEntries = [];
+  visibleCurves = [];
+  lineInstanceBindGroup = null;
 }
 
 function setCurvesEnabled(enabled) {
@@ -347,34 +351,141 @@ function rebuildCurveGeometry(controlPointsSource = cachedCurveControlPoints) {
     return;
   }
 
-  const curveVertices = [];
-  let curveVertexOffset = 0;
+  const boundsBox = new THREE.Box3();
+  const boundsCenter = new THREE.Vector3();
 
   for (let i = 0; i < targetCount; i += 1) {
     const controlPoints = controlPointsSource[i];
-    const catmull = new THREE.CatmullRomCurve3(controlPoints);
-    for (let s = 0; s <= CURVE_SEGMENTS; s += 1) {
-      const t = s / CURVE_SEGMENTS;
-      const point = catmull.getPoint(t);
-      curveVertices.push(point.x, point.y, point.z);
+    boundsBox.setFromPoints(controlPoints);
+    boundsBox.getCenter(boundsCenter);
+
+    let radius = 0;
+    for (const point of controlPoints) {
+      radius = Math.max(radius, point.distanceTo(boundsCenter));
     }
-    curveDraws.push({
-      offset: curveVertexOffset,
-      count: CURVE_SEGMENTS + 1,
+
+    const segmentCounts = CURVE_LOD_SEGMENTS.map((segments) =>
+      Math.max(4, Math.min(segments, MAX_CURVE_SEGMENTS)),
+    );
+
+    curveDrawEntries.push({
+      curveIndex: i,
+      segmentCounts,
+      bounds: {
+        center: boundsCenter.clone(),
+        radius,
+      },
     });
-    curveVertexOffset += CURVE_SEGMENTS + 1;
   }
 
-  if (curveVertices.length === 0) {
+  refreshVisibleCurves();
+}
+
+function refreshVisibleCurves() {
+  visibleCurves = [];
+
+  if (
+    !params.showCurves ||
+    !device ||
+    curveDrawEntries.length === 0 ||
+    !controlBuffer
+  ) {
+    updateCurveInstanceResources();
     return;
   }
 
-  const curveData = new Float32Array(curveVertices);
-  curveVertexBuffer = device.createBuffer({
-    size: curveData.byteLength,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(curveVertexBuffer, 0, curveData);
+  const maxCurves = Math.min(planeCount, curveDrawEntries.length);
+  if (maxCurves === 0) {
+    updateCurveInstanceResources();
+    return;
+  }
+
+  const cameraPosition = camera.position;
+
+  for (let i = 0; i < maxCurves; i += 1) {
+    const entry = curveDrawEntries[i];
+    const distance =
+      cameraPosition.distanceTo(entry.bounds.center) - entry.bounds.radius;
+
+    if (distance > CURVE_CULL_DISTANCE) {
+      continue;
+    }
+
+    let lodIndex = 0;
+    if (distance > CURVE_LOD_DISTANCES[0]) {
+      lodIndex = 1;
+    }
+    if (distance > CURVE_LOD_DISTANCES[1]) {
+      lodIndex = 2;
+    }
+    lodIndex = Math.min(lodIndex, entry.segmentCounts.length - 1);
+
+    const segmentCount = Math.max(1, entry.segmentCounts[lodIndex] | 0);
+
+    visibleCurves.push({
+      curveIndex: entry.curveIndex,
+      segmentCount,
+    });
+  }
+
+  updateCurveInstanceResources();
+}
+
+function updateCurveInstanceResources() {
+  if (!device || !linePipeline || !controlBuffer) return;
+
+  if (visibleCurves.length === 0) {
+    if (curveInstanceBuffer) {
+      curveInstanceBuffer.destroy();
+      curveInstanceBuffer = null;
+      curveInstanceBufferSize = 0;
+    }
+    lineInstanceBindGroup = null;
+    return;
+  }
+
+  const instanceArray = new Uint32Array(visibleCurves.length * 4);
+  for (let i = 0; i < visibleCurves.length; i += 1) {
+    const base = i * 4;
+    const info = visibleCurves[i];
+    instanceArray[base + 0] = info.curveIndex;
+    instanceArray[base + 1] = info.segmentCount;
+    instanceArray[base + 2] = 0;
+    instanceArray[base + 3] = 0;
+  }
+
+  const requiredSize = instanceArray.byteLength;
+  let recreatedBuffer = false;
+  if (!curveInstanceBuffer || curveInstanceBufferSize < requiredSize) {
+    if (curveInstanceBuffer) {
+      curveInstanceBuffer.destroy();
+    }
+    curveInstanceBuffer = device.createBuffer({
+      size: Math.max(requiredSize, 16),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    curveInstanceBufferSize = requiredSize;
+    recreatedBuffer = true;
+  }
+
+  device.queue.writeBuffer(curveInstanceBuffer, 0, instanceArray);
+
+  if (!lineInstanceBindGroup || recreatedBuffer) {
+    const lineInstanceLayout = linePipeline.getBindGroupLayout(1);
+    lineInstanceBindGroup = device.createBindGroup({
+      layout: lineInstanceLayout,
+      entries: [
+        {
+          binding: 0,
+          resource: { buffer: controlBuffer },
+        },
+        {
+          binding: 1,
+          resource: { buffer: curveInstanceBuffer },
+        },
+      ],
+    });
+  }
 }
 
 function rebuildPlanes(count) {
@@ -546,6 +657,13 @@ function stepSimulation(delta) {
   const colorTexture = context.getCurrentTexture();
   const colorView = colorTexture.createView();
 
+  if (params.showCurves) {
+    refreshVisibleCurves();
+  } else if (visibleCurves.length > 0) {
+    visibleCurves = [];
+    updateCurveInstanceResources();
+  }
+
   const renderPassDescriptor = {
     colorAttachments: [
       {
@@ -570,13 +688,11 @@ function stepSimulation(delta) {
   renderPass.setVertexBuffer(0, planeVertexBuffer);
   renderPass.draw(planeVertexCount, planeCount, 0, 0);
 
-  if (params.showCurves && curveVertexBuffer && curveDraws.length > 0) {
+  if (params.showCurves && lineInstanceBindGroup && visibleCurves.length > 0) {
     renderPass.setPipeline(linePipeline);
     renderPass.setBindGroup(0, lineSceneBindGroup);
-    renderPass.setVertexBuffer(0, curveVertexBuffer);
-    for (const draw of curveDraws) {
-      renderPass.draw(draw.count, 1, draw.offset, 0);
-    }
+    renderPass.setBindGroup(1, lineInstanceBindGroup);
+    renderPass.draw(MAX_CURVE_VERTICES, visibleCurves.length, 0, 0);
   }
 
   renderPass.end();
@@ -751,16 +867,72 @@ struct SceneUniforms {
   cameraUp : vec4<f32>,
 };
 
+struct ControlPoints {
+  data : array<vec4<f32>>,
+};
+
+struct CurveInstance {
+  curveIndex : u32,
+  segments : u32,
+  _pad0 : u32,
+  _pad1 : u32,
+};
+
+struct CurveInstances {
+  data : array<CurveInstance>,
+};
+
 @group(0) @binding(0) var<uniform> scene : SceneUniforms;
+@group(1) @binding(0) var<storage, read> controlPoints : ControlPoints;
+@group(1) @binding(1) var<storage, read> curveInstances : CurveInstances;
 
 struct VertexOutput {
   @builtin(position) position : vec4<f32>,
 };
 
+fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
+  let t2 = t * t;
+  let t3 = t2 * t;
+  return 0.5 * (
+    (2.0 * p1) +
+    (-p0 + p2) * t +
+    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+  );
+}
+
 @vertex
-fn vs_main(@location(0) position : vec3<f32>) -> VertexOutput {
+fn vs_main(
+  @builtin(vertex_index) vertexIndex : u32,
+  @builtin(instance_index) instanceIndex : u32
+) -> VertexOutput {
   var output : VertexOutput;
-  output.position = scene.viewProjection * vec4<f32>(position, 1.0);
+  let instance = curveInstances.data[instanceIndex];
+  let segments = max(instance.segments, 1u);
+  let clampedVertex = min(vertexIndex, segments);
+  let t = f32(clampedVertex) / f32(segments);
+
+  let segmentCount = ${CONTROL_POINTS_PER_CURVE - 1}u;
+  let scaled = t * f32(segmentCount);
+  let segmentFloat = floor(scaled);
+  let segmentIndex = min(u32(segmentFloat), segmentCount - 1u);
+  let localT = scaled - segmentFloat;
+
+  let base = instance.curveIndex * ${CONTROL_POINTS_PER_CURVE}u;
+  let maxIndex = ${CONTROL_POINTS_PER_CURVE - 1};
+  let i0 = clamp(i32(segmentIndex) - 1, 0, maxIndex);
+  let i1 = clamp(i32(segmentIndex), 0, maxIndex);
+  let i2 = clamp(i32(segmentIndex) + 1, 0, maxIndex);
+  let i3 = clamp(i32(segmentIndex) + 2, 0, maxIndex);
+
+  let p0 = controlPoints.data[base + u32(i0)].xyz;
+  let p1 = controlPoints.data[base + u32(i1)].xyz;
+  let p2 = controlPoints.data[base + u32(i2)].xyz;
+  let p3 = controlPoints.data[base + u32(i3)].xyz;
+
+  let point = catmullRom(p0, p1, p2, p3, localT);
+
+  output.position = scene.viewProjection * vec4<f32>(point, 1.0);
   return output;
 }
 
