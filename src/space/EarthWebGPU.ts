@@ -144,7 +144,7 @@ export class EarthWebGPU {
   private async loadTexture(url: string): Promise<void> {
     try {
       this.texture = await loadTexture(this.device, url, {
-        flipY: true,
+        flipY: false, // Don't flip - texture is already correct orientation
         wrapU: 'repeat',
         wrapV: 'clamp-to-edge',
         minFilter: 'linear',
@@ -244,7 +244,7 @@ export class EarthWebGPU {
       },
       primitive: {
         topology: 'triangle-list',
-        cullMode: 'back',
+        cullMode: 'none', // Render both sides to prevent blackout when camera rotates below
       },
       depthStencil: {
         format: 'depth24plus',

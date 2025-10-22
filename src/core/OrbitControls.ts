@@ -238,11 +238,20 @@ export class OrbitControls {
     // Convert spherical to Cartesian coordinates
     const sinPhiRadius = Math.sin(this.spherical.phi) * this.spherical.radius;
 
-    this.camera.setPosition(
-      sinPhiRadius * Math.sin(this.spherical.theta) + this.camera.target[0],
-      Math.cos(this.spherical.phi) * this.spherical.radius + this.camera.target[1],
-      sinPhiRadius * Math.cos(this.spherical.theta) + this.camera.target[2]
-    );
+    const newX = sinPhiRadius * Math.sin(this.spherical.theta) + this.camera.target[0];
+    const newY = Math.cos(this.spherical.phi) * this.spherical.radius + this.camera.target[1];
+    const newZ = sinPhiRadius * Math.cos(this.spherical.theta) + this.camera.target[2];
+
+    // Prevent camera from going below ground (assuming target is at origin)
+    // Calculate distance from origin to ensure we stay above Earth surface
+    const distanceFromOrigin = Math.sqrt(newX * newX + newY * newY + newZ * newZ);
+    if (distanceFromOrigin < this.minDistance) {
+      // Clamp camera position to minDistance from origin
+      const scale = this.minDistance / distanceFromOrigin;
+      this.camera.setPosition(newX * scale, newY * scale, newZ * scale);
+    } else {
+      this.camera.setPosition(newX, newY, newZ);
+    }
 
     // Update camera view matrix
     this.camera.updateViewMatrix();

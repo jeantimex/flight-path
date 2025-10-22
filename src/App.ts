@@ -180,7 +180,8 @@ export class WebGPUApp {
         dampingFactor: 0.05,
         minDistance: 3200,
         maxDistance: 20000,
-        maxPolarAngle: Math.PI,
+        minPolarAngle: Math.PI * 0.05, // Prevent going directly above north pole
+        maxPolarAngle: Math.PI * 0.95, // Prevent going directly below south pole
         enablePan: false,
         enableZoom: true,
         enableRotate: true,
