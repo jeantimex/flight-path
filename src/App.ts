@@ -409,7 +409,7 @@ export class WebGPUApp {
 
       // Initialize Planes
       this.planes = new PlanesWebGPU(this.gpuContext.device, {
-        baseSize: 10,
+        baseSize: 15, // Increased from 10 to match main branch appearance
         texturePath: null, // Will load atlas below
       });
       this.planes.setFlightManager(this.flightManager);
