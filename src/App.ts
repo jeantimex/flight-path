@@ -17,6 +17,7 @@ import { StarsWebGPU } from './space/StarsWebGPU.ts';
 import { AtmosphereWebGPU } from './space/AtmosphereWebGPU.ts';
 import { FlightManager } from './flights/FlightManager.ts';
 import { PlanesWebGPU } from './planes/PlanesWebGPU.ts';
+import { CurveManager } from './curves/CurveManager.ts';
 import { createAtlas } from './core/AtlasLoader.ts';
 
 const EARTH_RADIUS = 3000;
@@ -32,6 +33,7 @@ export class WebGPUApp {
   private atmosphere: AtmosphereWebGPU | null = null;
   private flightManager: FlightManager | null = null;
   private planes: PlanesWebGPU | null = null;
+  private curves: CurveManager | null = null;
   private earthTextureLoaded = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
@@ -87,6 +89,8 @@ export class WebGPUApp {
         enablePan: false,
         enableZoom: true,
         enableRotate: true,
+        rotateSpeed: 0.3, // Slower rotation for better control
+        zoomSpeed: 0.1, // Much slower zoom for fine control
       });
 
       console.log('✅ Camera and controls initialized');
@@ -168,6 +172,16 @@ export class WebGPUApp {
 
       console.log('✅ Plane atlas loaded');
 
+      // Initialize Curves
+      this.curves = new CurveManager(this.gpuContext.device, {
+        segmentsPerCurve: 32, // 32 segments per curve
+      });
+      this.curves.setFlightManager(this.flightManager);
+      this.curves.createComputePipeline();
+      this.curves.createRenderPipeline(this.gpuContext.presentationFormat);
+
+      console.log('✅ Curves initialized');
+
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
 
@@ -235,6 +249,11 @@ export class WebGPUApp {
       this.flightManager.update(commandEncoder, deltaTime);
     }
 
+    // Compute pass: Tessellate curves
+    if (this.curves) {
+      this.curves.tessellate(commandEncoder);
+    }
+
     // Create render pass
     const renderPassDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [{
@@ -268,12 +287,15 @@ export class WebGPUApp {
       this.atmosphere.render(renderPass, this.camera);
     }
 
+    // Render curves (line strips, depth write OFF)
+    if (this.curves) {
+      this.curves.render(renderPass, this.camera);
+    }
+
     // Render planes (instanced billboards, depth write ON)
     if (this.planes) {
       this.planes.render(renderPass, this.camera);
     }
-
-    // TODO: Add curve rendering (Step 12-13)
 
     renderPass.end();
 
@@ -309,6 +331,10 @@ export class WebGPUApp {
 
     if (this.planes) {
       this.planes.destroy();
+    }
+
+    if (this.curves) {
+      this.curves.destroy();
     }
 
     if (this.gpuContext) {

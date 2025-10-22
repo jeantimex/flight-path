@@ -136,21 +136,22 @@ fn vertexMain(
     );
   }
 
-  // Orient billboard to face flight direction
-  // Create rotation matrix from flight direction
-  let forward = normalize(flightOutput.direction);
+  // Orient billboard to align with flight direction
+  // The plane texture has nose pointing "up" in texture space,
+  // so billboard's "up" vector should point in flight direction
+  let flightDir = normalize(flightOutput.direction);
   let worldUp = normalize(flightOutput.position); // Radial up from Earth center
 
-  // Right vector perpendicular to flight direction and world up
-  var right = normalize(cross(worldUp, forward));
+  // Right vector perpendicular to flight direction (for wings)
+  var right = normalize(cross(worldUp, flightDir));
   if (length(right) < 0.001) {
-    // Handle case where forward is parallel to worldUp
+    // Handle case where flight direction is vertical (parallel to worldUp)
     let fallbackUp = vec3<f32>(0.0, 1.0, 0.0);
-    right = normalize(cross(fallbackUp, forward));
+    right = normalize(cross(fallbackUp, flightDir));
   }
 
-  // Recalculate up to be perpendicular to both
-  let up = normalize(cross(forward, right));
+  // Up points in flight direction (so plane nose points forward)
+  let up = flightDir;
 
   // Create billboard vertex in local space, then transform to world space
   let localOffset = right * offset.x + up * offset.y;

@@ -89,6 +89,31 @@ export class FlightManager {
   }
 
   private initializeFlightData(): void {
+    // Constants for curve generation
+    const BULGE_MIN = 0.2; // Minimum bulge amount (20% of altitude)
+    const BULGE_MAX = 0.4; // Maximum bulge amount (40% of altitude)
+    const BULGE_INFLUENCE = 0.5; // How much bulge affects control points
+    const TANGENT_EXTENSION = 0.2; // How far to extend p0/p3 from p1/p2
+    const EPSILON = 0.001; // Threshold for detecting parallel vectors
+    const FALLBACK_BULGE = 0.3; // Fallback bulge for edge cases
+
+    // Helper: Calculate vector magnitude
+    const magnitude = (v: { x: number; y: number; z: number }) =>
+      Math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2);
+
+    // Helper: Normalize vector
+    const normalize = (v: { x: number; y: number; z: number }) => {
+      const mag = magnitude(v);
+      return { x: v.x / mag, y: v.y / mag, z: v.z / mag };
+    };
+
+    // Helper: Cross product
+    const cross = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => ({
+      x: a.y * b.z - a.z * b.y,
+      y: a.z * b.x - a.x * b.z,
+      z: a.x * b.y - a.y * b.x,
+    });
+
     // Generate random control points for Catmull-Rom curves
     const controlPointsData = new Float32Array(this.flightCount * 16); // 4 vec4 per flight
 
@@ -103,42 +128,83 @@ export class FlightManager {
       const start = this.randomPointOnSphere();
       const end = this.randomPointOnSphere();
 
-      // Generate 4 control points for Catmull-Rom curve
-      // Catmull-Rom interpolates through p1 and p2, using p0 and p3 for tangents
-      // To create arc: p0 (tangent) -> p1 (start) -> p2 (end) -> p3 (tangent)
-      // Pull control points upward to create cruise altitude arc
+      // Generate 4 control points for Catmull-Rom curve with visible curvature
+      // Strategy: Create lateral bulge perpendicular to great circle path
+      // This makes curves deviate from geodesic, creating visible arcs
 
       const altitude = this.earthRadius + this.minAltitude +
                       Math.random() * (this.maxAltitude - this.minAltitude);
 
-      // p1: start point lifted to cruise altitude
-      const startDist = Math.sqrt(start.x ** 2 + start.y ** 2 + start.z ** 2);
+      // Normalize start and end points
+      const startNorm = normalize(start);
+      const endNorm = normalize(end);
+
+      // p1: start point at cruise altitude
       const p1 = {
-        x: (start.x / startDist) * altitude,
-        y: (start.y / startDist) * altitude,
-        z: (start.z / startDist) * altitude,
+        x: startNorm.x * altitude,
+        y: startNorm.y * altitude,
+        z: startNorm.z * altitude,
       };
 
-      // p2: end point lifted to cruise altitude
-      const endDist = Math.sqrt(end.x ** 2 + end.y ** 2 + end.z ** 2);
+      // p2: end point at cruise altitude
       const p2 = {
-        x: (end.x / endDist) * altitude,
-        y: (end.y / endDist) * altitude,
-        z: (end.z / endDist) * altitude,
+        x: endNorm.x * altitude,
+        y: endNorm.y * altitude,
+        z: endNorm.z * altitude,
       };
 
-      // p0: tangent control point before start (on surface for takeoff)
+      // Calculate perpendicular direction for bulge (cross product of start and end)
+      const perp = cross(startNorm, endNorm);
+      const perpMag = magnitude(perp);
+
+      // Random bulge amount for visible curvature
+      const bulgeAmount = (BULGE_MIN + Math.random() * (BULGE_MAX - BULGE_MIN)) * altitude;
+
+      // Random bulge direction (50% chance to bulge left or right)
+      const bulgeDir = Math.random() > 0.5 ? 1 : -1;
+
+      let bulge: { x: number; y: number; z: number };
+      if (perpMag > EPSILON) {
+        // Normal case: add perpendicular bulge
+        const perpNorm = normalize(perp);
+        bulge = {
+          x: perpNorm.x * bulgeAmount * bulgeDir,
+          y: perpNorm.y * bulgeAmount * bulgeDir,
+          z: perpNorm.z * bulgeAmount * bulgeDir,
+        };
+      } else {
+        // Edge case: start and end are opposite points, use arbitrary perpendicular
+        bulge = {
+          x: altitude * FALLBACK_BULGE,
+          y: altitude * FALLBACK_BULGE,
+          z: 0,
+        };
+      }
+
+      // p0: position before p1, with bulge to create curved entry
+      const p0_unnorm = {
+        x: startNorm.x - (endNorm.x - startNorm.x) * TANGENT_EXTENSION + bulge.x * BULGE_INFLUENCE,
+        y: startNorm.y - (endNorm.y - startNorm.y) * TANGENT_EXTENSION + bulge.y * BULGE_INFLUENCE,
+        z: startNorm.z - (endNorm.z - startNorm.z) * TANGENT_EXTENSION + bulge.z * BULGE_INFLUENCE,
+      };
+      const p0Norm = normalize(p0_unnorm);
       const p0 = {
-        x: start.x - (p1.x - start.x) * 0.3,
-        y: start.y - (p1.y - start.y) * 0.3,
-        z: start.z - (p1.z - start.z) * 0.3,
+        x: p0Norm.x * altitude,
+        y: p0Norm.y * altitude,
+        z: p0Norm.z * altitude,
       };
 
-      // p3: tangent control point after end (on surface for landing)
+      // p3: position after p2, with bulge to create curved exit
+      const p3_unnorm = {
+        x: endNorm.x + (endNorm.x - startNorm.x) * TANGENT_EXTENSION + bulge.x * BULGE_INFLUENCE,
+        y: endNorm.y + (endNorm.y - startNorm.y) * TANGENT_EXTENSION + bulge.y * BULGE_INFLUENCE,
+        z: endNorm.z + (endNorm.z - startNorm.z) * TANGENT_EXTENSION + bulge.z * BULGE_INFLUENCE,
+      };
+      const p3Norm = normalize(p3_unnorm);
       const p3 = {
-        x: end.x + (end.x - p2.x) * 0.3,
-        y: end.y + (end.y - p2.y) * 0.3,
-        z: end.z + (end.z - p2.z) * 0.3,
+        x: p3Norm.x * altitude,
+        y: p3Norm.y * altitude,
+        z: p3Norm.z * altitude,
       };
 
       // Store control points (vec4 aligned)
@@ -165,7 +231,7 @@ export class FlightManager {
       // Flight state
       const stateDataF32 = new Float32Array(flightStateData.buffer, stateOffset * 4, 2);
       stateDataF32[0] = Math.random(); // t: random start position
-      stateDataF32[1] = 0.05 + Math.random() * 0.15; // speed: 0.05 to 0.2
+      stateDataF32[1] = 0.05 + Math.random() * 0.15; // speed: 0.05 to 0.2 (original speed)
 
       // Packed color (RGBA8)
       const r = Math.floor(Math.random() * 256);
@@ -284,6 +350,10 @@ export class FlightManager {
 
   public getFlightStateBuffer(): GPUBuffer | null {
     return this.flightStateBuffer;
+  }
+
+  public getControlPointsBuffer(): GPUBuffer | null {
+    return this.controlPointsBuffer;
   }
 
   public getFlightCount(): number {

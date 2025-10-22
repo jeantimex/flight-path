@@ -122,7 +122,13 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
   // Write outputs
   outputs[flightIndex].position = position;
-  outputs[flightIndex].direction = normalize(tangent);
+
+  // Flip direction if traveling backwards (return flights)
+  var direction = normalize(tangent);
+  if (state.speed < 0.0) {
+    direction = -direction;
+  }
+  outputs[flightIndex].direction = direction;
 
   // Write back updated state
   flightStates[flightIndex] = state;
