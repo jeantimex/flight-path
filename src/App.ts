@@ -37,8 +37,11 @@ export class WebGPUApp {
   private curves: CurveManager | null = null;
   private guiControls: ControlsWebGPU | null = null;
   private earthTextureLoaded = false;
+  private planeAtlasLoaded = false;
+  private minLoadingTime = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
+  private loadingScreen: HTMLElement | null = null;
 
   constructor() {
     // Create canvas
@@ -53,8 +56,85 @@ export class WebGPUApp {
     }
     app.appendChild(this.canvas);
 
+    // Create loading screen
+    this.createLoadingScreen();
+
     // Initialize WebGPU
     this.initialize();
+  }
+
+  private createLoadingScreen(): void {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loading-screen';
+    loadingDiv.style.cssText = `
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle at top, rgba(0, 40, 80, 0.95), rgba(0, 10, 20, 0.98));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease-out;
+    `;
+
+    const spinner = document.createElement('div');
+    spinner.innerHTML = `
+      <div style="
+        width: 80px;
+        height: 80px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top: 4px solid rgba(88, 166, 255, 1);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      "></div>
+    `;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+
+    loadingDiv.appendChild(spinner);
+    document.body.appendChild(loadingDiv);
+    this.loadingScreen = loadingDiv;
+
+    // Hide dat.GUI during loading
+    const guiElements = document.querySelectorAll('.dg.ac');
+    guiElements.forEach((el) => {
+      (el as HTMLElement).style.display = 'none';
+    });
+
+    // Minimum loading time (2 seconds)
+    setTimeout(() => {
+      this.minLoadingTime = true;
+      this.checkReadyToStart();
+    }, 2000);
+  }
+
+  private checkReadyToStart(): void {
+    if (this.earthTextureLoaded && this.planeAtlasLoaded && this.minLoadingTime) {
+      this.removeLoadingScreen();
+    }
+  }
+
+  private removeLoadingScreen(): void {
+    if (!this.loadingScreen) return;
+
+    this.loadingScreen.style.opacity = '0';
+    setTimeout(() => {
+      this.loadingScreen?.remove();
+      this.loadingScreen = null;
+
+      // Show dat.GUI after loading
+      const guiElements = document.querySelectorAll('.dg.ac');
+      guiElements.forEach((el) => {
+        (el as HTMLElement).style.display = 'block';
+      });
+    }, 500);
   }
 
   private async initialize(): Promise<void> {
@@ -106,6 +186,8 @@ export class WebGPUApp {
           if (this.earth && this.gpuContext) {
             this.earth.createPipeline(this.gpuContext.presentationFormat);
           }
+          // Check if ready to start
+          this.checkReadyToStart();
         },
       });
 
@@ -172,8 +254,12 @@ export class WebGPUApp {
       });
 
       this.planes.setAtlas(planeAtlas);
+      this.planeAtlasLoaded = true;
 
       console.log('✅ Plane atlas loaded');
+
+      // Check if ready to start
+      this.checkReadyToStart();
 
       // Initialize Curves
       this.curves = new CurveManager(this.gpuContext.device, {
