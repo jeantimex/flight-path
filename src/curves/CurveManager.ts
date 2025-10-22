@@ -268,10 +268,12 @@ export class CurveManager {
     let activeSegments: number;
     if (estimatedVisible <= 100000) {
       activeSegments = 16;
-    } else if (estimatedVisible <= 500000) {
+    } else if (estimatedVisible <= 250000) {
       activeSegments = 8;
-    } else {
+    } else if (estimatedVisible <= 400000) {
       activeSegments = 4;
+    } else {
+      activeSegments = 2; // Minimum detail at very high counts (>800K flights)
     }
 
     return { activeSegments, decimation };
