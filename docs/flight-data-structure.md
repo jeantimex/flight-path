@@ -59,7 +59,7 @@ struct FlightState {
   t: f32,                  // Curve parameter [0.0, 1.0]
   speed: f32,              // Speed multiplier
   packedColor: u32,        // RGBA8_UNORM (8 bits per channel)
-  packedSizeFlags: u32,    // Upper 16 bits: size (f16), Lower 16 bits: flags
+  packedSizeFlags: u32,    // Bits 16-31: size, Bits 8-15: textureIndex, Bits 0-7: flags
 };
 
 @group(0) @binding(1) var<storage, read_write> flightStates: array<FlightState>;
@@ -79,17 +79,21 @@ fn unpackColor(packed: u32) -> vec3<f32> {
   return vec3<f32>(r, g, b);
 }
 
-fn packSizeFlags(size: f32, flags: u32) -> u32 {
+fn packSizeFlags(size: f32, textureIndex: u32, flags: u32) -> u32 {
   let sizeU16 = u32(clamp(size, 0.0, 65535.0));
-  return (sizeU16 << 16u) | (flags & 0xFFFFu);
+  return (sizeU16 << 16u) | ((textureIndex & 0xFFu) << 8u) | (flags & 0xFFu);
 }
 
 fn unpackSize(packed: u32) -> f32 {
   return f32(packed >> 16u);
 }
 
+fn unpackTextureIndex(packed: u32) -> u32 {
+  return (packed >> 8u) & 0xFFu;
+}
+
 fn unpackFlags(packed: u32) -> u32 {
-  return packed & 0xFFFFu;
+  return packed & 0xFFu;
 }
 ```
 

@@ -15,8 +15,12 @@ import { OrbitControls } from './core/OrbitControls.ts';
 import { EarthWebGPU } from './space/EarthWebGPU.ts';
 import { StarsWebGPU } from './space/StarsWebGPU.ts';
 import { AtmosphereWebGPU } from './space/AtmosphereWebGPU.ts';
+import { FlightManager } from './flights/FlightManager.ts';
+import { PlanesWebGPU } from './planes/PlanesWebGPU.ts';
+import { createAtlas } from './core/AtlasLoader.ts';
 
 const EARTH_RADIUS = 3000;
+const BASE_URL = import.meta.env.BASE_URL;
 
 export class WebGPUApp {
   private canvas: HTMLCanvasElement;
@@ -26,6 +30,8 @@ export class WebGPUApp {
   private earth: EarthWebGPU | null = null;
   private stars: StarsWebGPU | null = null;
   private atmosphere: AtmosphereWebGPU | null = null;
+  private flightManager: FlightManager | null = null;
+  private planes: PlanesWebGPU | null = null;
   private earthTextureLoaded = false;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
@@ -119,6 +125,49 @@ export class WebGPUApp {
 
       console.log('✅ Atmosphere initialized');
 
+      // Initialize Flight Manager
+      this.flightManager = new FlightManager(this.gpuContext.device, {
+        flightCount: 1000, // Start with 1K flights for testing
+        earthRadius: EARTH_RADIUS,
+        minAltitude: 30,
+        maxAltitude: 220,
+        planeTextureCount: 8, // 8 plane designs in atlas
+      });
+      this.flightManager.createPipeline();
+
+      console.log('✅ Flight Manager initialized');
+
+      // Initialize Planes
+      this.planes = new PlanesWebGPU(this.gpuContext.device, {
+        baseSize: 10,
+        texturePath: null, // Will load atlas below
+      });
+      this.planes.setFlightManager(this.flightManager);
+      this.planes.createPipeline(this.gpuContext.presentationFormat);
+
+      console.log('✅ Planes initialized');
+
+      // Load plane atlas (8 SVG textures in 4x2 grid)
+      const planeAtlas = await createAtlas(this.gpuContext.device, {
+        columns: 4,
+        rows: 2,
+        tileSize: 512,
+        images: [
+          `${BASE_URL}plane1.svg`,
+          `${BASE_URL}plane2.svg`,
+          `${BASE_URL}plane3.svg`,
+          `${BASE_URL}plane4.svg`,
+          `${BASE_URL}plane5.svg`,
+          `${BASE_URL}plane6.svg`,
+          `${BASE_URL}plane7.svg`,
+          `${BASE_URL}plane8.svg`,
+        ],
+      });
+
+      this.planes.setAtlas(planeAtlas);
+
+      console.log('✅ Plane atlas loaded');
+
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
 
@@ -181,6 +230,11 @@ export class WebGPUApp {
     // Create command encoder
     const commandEncoder = device.createCommandEncoder();
 
+    // Compute pass: Update flight positions
+    if (this.flightManager) {
+      this.flightManager.update(commandEncoder, deltaTime);
+    }
+
     // Create render pass
     const renderPassDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [{
@@ -214,10 +268,12 @@ export class WebGPUApp {
       this.atmosphere.render(renderPass, this.camera);
     }
 
-    // TODO: Add more rendering pipelines here
-    // - Compute pass for curves
-    // - Curves
-    // - Planes
+    // Render planes (instanced billboards, depth write ON)
+    if (this.planes) {
+      this.planes.render(renderPass, this.camera);
+    }
+
+    // TODO: Add curve rendering (Step 12-13)
 
     renderPass.end();
 
@@ -245,6 +301,14 @@ export class WebGPUApp {
 
     if (this.atmosphere) {
       this.atmosphere.destroy();
+    }
+
+    if (this.flightManager) {
+      this.flightManager.destroy();
+    }
+
+    if (this.planes) {
+      this.planes.destroy();
     }
 
     if (this.gpuContext) {

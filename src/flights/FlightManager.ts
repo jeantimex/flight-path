@@ -10,6 +10,7 @@ export interface FlightManagerConfig {
   earthRadius?: number;
   minAltitude?: number;
   maxAltitude?: number;
+  planeTextureCount?: number; // Number of plane textures in atlas
 }
 
 export class FlightManager {
@@ -18,6 +19,7 @@ export class FlightManager {
   private earthRadius: number;
   private minAltitude: number;
   private maxAltitude: number;
+  private planeTextureCount: number;
 
   // Buffers
   private controlPointsBuffer: GPUBuffer | null = null;
@@ -38,6 +40,7 @@ export class FlightManager {
     this.earthRadius = config.earthRadius ?? 3000;
     this.minAltitude = config.minAltitude ?? 30;
     this.maxAltitude = config.maxAltitude ?? 220;
+    this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
     // deltaTime (4) + earthRadius (4) + pad (8) = 16 bytes
@@ -170,11 +173,12 @@ export class FlightManager {
       const b = Math.floor(Math.random() * 256);
       flightStateData[stateOffset + 2] = (r << 24) | (g << 16) | (b << 8) | 255;
 
-      // Packed size + flags
+      // Packed size + textureIndex + flags
       const size = 3 + Math.random() * 5; // 3 to 8
       const isReturnFlight = Math.random() > 0.5;
+      const textureIndex = Math.floor(Math.random() * this.planeTextureCount);
       const flags = isReturnFlight ? 1 : 0;
-      flightStateData[stateOffset + 3] = (Math.floor(size) << 16) | flags;
+      flightStateData[stateOffset + 3] = (Math.floor(size) << 16) | (textureIndex << 8) | flags;
     }
 
     // Upload data to GPU
