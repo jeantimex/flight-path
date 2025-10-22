@@ -48,9 +48,12 @@ struct FlightState {
 
 @group(0) @binding(2) var<storage, read> flightStates: array<FlightState>;
 
+// Visible indices (for indirect rendering)
+@group(0) @binding(3) var<storage, read> visibleIndices: array<u32>;
+
 // Texture atlas
-@group(0) @binding(3) var planeSampler: sampler;
-@group(0) @binding(4) var planeTexture: texture_2d<f32>;
+@group(0) @binding(4) var planeSampler: sampler;
+@group(0) @binding(5) var planeTexture: texture_2d<f32>;
 
 // Vertex output
 struct VertexOutput {
@@ -99,20 +102,17 @@ fn vertexMain(
   }
 
   // Bounds check
-  if (instanceIndex >= arrayLength(&flightOutputs)) {
+  if (instanceIndex >= arrayLength(&visibleIndices)) {
     output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
     return output;
   }
 
-  // Load flight data
-  let flightOutput = flightOutputs[instanceIndex];
-  let flightState = flightStates[instanceIndex];
+  // Get actual flight index from compacted visible indices
+  let flightIndex = visibleIndices[instanceIndex];
 
-  // Frustum culling: skip invisible flights
-  if (!isFlightVisible(flightState.packedSizeFlags)) {
-    output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    return output;
-  }
+  // Load flight data using the actual flight index
+  let flightOutput = flightOutputs[flightIndex];
+  let flightState = flightStates[flightIndex];
 
   // Unpack color, size, and texture index
   let color = unpackColor(flightState.packedColor);

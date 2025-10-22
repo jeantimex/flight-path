@@ -9,6 +9,8 @@ import type { PerspectiveCamera } from '../core/PerspectiveCamera.ts';
 import type { FlightManager } from '../flights/FlightManager.ts';
 import { loadTexture } from '../core/TextureLoader.ts';
 import planesShader from '../shaders/planes.wgsl?raw';
+import visibilityCullShader from '../shaders/visibilityCull.wgsl?raw';
+import clearCounterShader from '../shaders/clearCounter.wgsl?raw';
 
 export interface PlanesConfig {
   baseSize?: number;
@@ -61,6 +63,18 @@ export class PlanesWebGPU {
 
   // Dummy texture (1x1 white pixel for when no texture loaded)
   private dummyTexture: GPUTexture | null = null;
+
+  // Indirect rendering (visibility culling)
+  private visibilityPipeline: GPUComputePipeline | null = null;
+  private visibilityBindGroup: GPUBindGroup | null = null;
+  private visibleIndicesBuffer: GPUBuffer | null = null;
+  private drawArgsBuffer: GPUBuffer | null = null;
+  private atomicCounterBuffer: GPUBuffer | null = null;
+  private visibilityUniformBuffer: GPUBuffer | null = null;
+
+  // Clear counter pipeline (resets atomic counter without CPU-GPU sync)
+  private clearCounterPipeline: GPUComputePipeline | null = null;
+  private clearCounterBindGroup: GPUBindGroup | null = null;
 
   constructor(device: GPUDevice, config: PlanesConfig = {}) {
     this.device = device;
@@ -206,16 +220,30 @@ export class PlanesWebGPU {
         },
         {
           binding: 3,
+          visibility: GPUShaderStage.VERTEX,
+          buffer: { type: 'read-only-storage' },
+        },
+        {
+          binding: 4,
           visibility: GPUShaderStage.FRAGMENT,
           sampler: { type: 'filtering' },
         },
         {
-          binding: 4,
+          binding: 5,
           visibility: GPUShaderStage.FRAGMENT,
           texture: { sampleType: 'float' },
         },
       ],
     });
+
+    // Create temporary visible indices buffer (will be recreated in createVisibilityPipeline)
+    const maxFlights = this.flightManager.getFlightCount();
+    if (!this.visibleIndicesBuffer) {
+      this.visibleIndicesBuffer = this.device.createBuffer({
+        size: maxFlights * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+    }
 
     // Create bind group
     const textureView = this.texture
@@ -228,8 +256,9 @@ export class PlanesWebGPU {
         { binding: 0, resource: { buffer: this.uniformBuffer } },
         { binding: 1, resource: { buffer: this.flightManager.getOutputBuffer()! } },
         { binding: 2, resource: { buffer: this.flightManager.getFlightStateBuffer()! } },
-        { binding: 3, resource: this.sampler },
-        { binding: 4, resource: textureView },
+        { binding: 3, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 4, resource: this.sampler },
+        { binding: 5, resource: textureView },
       ],
     });
 
@@ -274,6 +303,167 @@ export class PlanesWebGPU {
     });
 
     console.log('✅ Planes pipeline created');
+
+    // Create visibility culling pipeline for indirect rendering
+    this.createVisibilityPipeline();
+  }
+
+  private createVisibilityPipeline(): void {
+    if (!this.flightManager || !this.visibleIndicesBuffer) {
+      return;
+    }
+
+    const maxFlights = this.flightManager.getFlightCount();
+
+    // Create buffers for indirect rendering
+    // (visibleIndicesBuffer already created in createPipeline)
+
+    // Draw args buffer for drawIndirect
+    // Layout: vertexCount (4), instanceCount (dynamic), firstVertex (0), firstInstance (0)
+    this.drawArgsBuffer = this.device.createBuffer({
+      size: 16, // 4 × u32
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Initialize draw args (constant values)
+    const drawArgsInit = new Uint32Array([
+      4, // vertexCount (quad)
+      0, // instanceCount (will be written by compute shader)
+      0, // firstVertex
+      0, // firstInstance
+    ]);
+    this.device.queue.writeBuffer(this.drawArgsBuffer, 0, drawArgsInit);
+
+    // Atomic counter buffer (separate for alignment requirements)
+    this.atomicCounterBuffer = this.device.createBuffer({
+      size: 256, // Minimum storage buffer size for alignment
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    const atomicInit = new Uint32Array(64); // 256 bytes / 4 bytes per u32
+    atomicInit[0] = 0; // Initialize counter to 0
+    this.device.queue.writeBuffer(this.atomicCounterBuffer, 0, atomicInit);
+
+    // Visibility uniform buffer
+    this.visibilityUniformBuffer = this.device.createBuffer({
+      size: 16, // totalFlights + 3 pads
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    const visUniformData = new Uint32Array([maxFlights, 0, 0, 0]);
+    this.device.queue.writeBuffer(this.visibilityUniformBuffer, 0, visUniformData);
+
+    // Create visibility compute shader
+    const visShaderModule = this.device.createShaderModule({
+      code: visibilityCullShader,
+    });
+
+    // Create bind group layout for visibility culling
+    const visBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // flightStates
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // visibleIndices
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // atomic counter (embedded in drawArgs)
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },           // drawArgs
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },           // uniforms
+      ],
+    });
+
+    // Create bind group
+    this.visibilityBindGroup = this.device.createBindGroup({
+      layout: visBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.flightManager.getFlightStateBuffer()! } },
+        { binding: 1, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 2, resource: { buffer: this.atomicCounterBuffer } }, // atomic counter
+        { binding: 3, resource: { buffer: this.drawArgsBuffer } },
+        { binding: 4, resource: { buffer: this.visibilityUniformBuffer } },
+      ],
+    });
+
+    // Create compute pipeline
+    this.visibilityPipeline = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [visBindGroupLayout],
+      }),
+      compute: {
+        module: visShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    // Create clear counter pipeline (GPU-side counter reset to avoid CPU-GPU sync)
+    const clearShaderModule = this.device.createShaderModule({
+      code: clearCounterShader,
+    });
+
+    const clearBindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // atomic counter
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }, // draw args
+      ],
+    });
+
+    this.clearCounterBindGroup = this.device.createBindGroup({
+      layout: clearBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.atomicCounterBuffer } },
+        { binding: 1, resource: { buffer: this.drawArgsBuffer } },
+      ],
+    });
+
+    this.clearCounterPipeline = this.device.createComputePipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [clearBindGroupLayout],
+      }),
+      compute: {
+        module: clearShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    console.log('✅ Visibility culling pipeline created');
+  }
+
+  public cullVisibility(commandEncoder: GPUCommandEncoder): void {
+    if (!this.visibilityPipeline || !this.visibilityBindGroup || !this.drawArgsBuffer || !this.atomicCounterBuffer || !this.flightManager || !this.clearCounterPipeline || !this.clearCounterBindGroup) {
+      return;
+    }
+
+    // Clear atomic counter on GPU (avoids CPU-GPU sync bottleneck)
+    const clearPass = commandEncoder.beginComputePass();
+    clearPass.setPipeline(this.clearCounterPipeline);
+    clearPass.setBindGroup(0, this.clearCounterBindGroup);
+    clearPass.dispatchWorkgroups(1);
+    clearPass.end();
+
+    // Run visibility culling compute shader
+    const computePass = commandEncoder.beginComputePass();
+    computePass.setPipeline(this.visibilityPipeline);
+    computePass.setBindGroup(0, this.visibilityBindGroup);
+
+    // Dispatch workgroups for all flights (workgroup size = 256)
+    const visibleFlightCount = this.flightManager.getVisibleFlightCount();
+    const workgroupCount = Math.ceil(visibleFlightCount / 256);
+    const maxWorkgroupsPerDim = 65535;
+
+    if (workgroupCount <= maxWorkgroupsPerDim) {
+      computePass.dispatchWorkgroups(workgroupCount);
+    } else {
+      const x = maxWorkgroupsPerDim;
+      const y = Math.ceil(workgroupCount / maxWorkgroupsPerDim);
+      computePass.dispatchWorkgroups(x, y, 1);
+    }
+
+    computePass.end();
+
+    // Copy atomic counter result to draw args buffer (instanceCount field)
+    commandEncoder.copyBufferToBuffer(
+      this.atomicCounterBuffer,
+      0, // source offset
+      this.drawArgsBuffer,
+      4, // destination offset (instanceCount is at offset 4)
+      4, // size (one u32)
+    );
   }
 
   public render(renderPass: GPURenderPassEncoder, camera: PerspectiveCamera): void {
@@ -304,10 +494,17 @@ export class PlanesWebGPU {
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
 
-    // Render instanced planes
+    // Render instanced planes using indirect draw
     renderPass.setPipeline(this.pipeline);
     renderPass.setBindGroup(0, this.bindGroup);
-    renderPass.draw(4, this.flightManager.getVisibleFlightCount()); // 4 vertices per quad, visible instances only
+
+    if (this.drawArgsBuffer) {
+      // Use indirect rendering (instance count determined by visibility culling)
+      renderPass.drawIndirect(this.drawArgsBuffer, 0);
+    } else {
+      // Fallback to direct rendering (shouldn't happen)
+      renderPass.draw(4, this.flightManager.getVisibleFlightCount());
+    }
   }
 
   public setPlanesVisible(visible: boolean): void {
@@ -358,5 +555,9 @@ export class PlanesWebGPU {
     this.uniformBuffer?.destroy();
     this.texture?.destroy();
     this.dummyTexture?.destroy();
+    this.visibleIndicesBuffer?.destroy();
+    this.drawArgsBuffer?.destroy();
+    this.atomicCounterBuffer?.destroy();
+    this.visibilityUniformBuffer?.destroy();
   }
 }

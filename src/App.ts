@@ -384,6 +384,11 @@ export class WebGPUApp {
       this.curves.tessellate(commandEncoder);
     }
 
+    // Compute pass: Visibility culling for indirect rendering
+    if (this.planes) {
+      this.planes.cullVisibility(commandEncoder);
+    }
+
     // Create render pass
     const renderPassDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [{
