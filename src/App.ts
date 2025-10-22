@@ -185,7 +185,7 @@ export class WebGPUApp {
         enableZoom: true,
         enableRotate: true,
         rotateSpeed: 0.3, // Slower rotation for better control
-        zoomSpeed: 0.1, // Much slower zoom for fine control
+        zoomSpeed: 0.05, // Even slower zoom for finer control
       });
 
       console.log('✅ Camera and controls initialized');

@@ -18,6 +18,9 @@ export interface OrbitControlsConfig {
   enableRotate?: boolean;
   rotateSpeed?: number;
   zoomSpeed?: number;
+  enableKeys?: boolean;
+  keyRotateSpeed?: number;
+  keyZoomSpeed?: number;
 }
 
 interface SphericalCoords {
@@ -42,6 +45,9 @@ export class OrbitControls {
   public enableRotate: boolean;
   public rotateSpeed: number;
   public zoomSpeed: number;
+  public enableKeys: boolean;
+  public keyRotateSpeed: number;
+  public keyZoomSpeed: number;
 
   // State
   private spherical: SphericalCoords;
@@ -58,6 +64,7 @@ export class OrbitControls {
   private onMouseUp = this.handleMouseUp.bind(this);
   private onWheel = this.handleWheel.bind(this);
   private onContextMenu = this.handleContextMenu.bind(this);
+  private onKeyDown = this.handleKeyDown.bind(this);
 
   constructor(camera: PerspectiveCamera, domElement: HTMLElement, config: OrbitControlsConfig = {}) {
     this.camera = camera;
@@ -75,6 +82,9 @@ export class OrbitControls {
     this.enableRotate = config.enableRotate ?? true;
     this.rotateSpeed = config.rotateSpeed ?? 1.0;
     this.zoomSpeed = config.zoomSpeed ?? 1.0;
+    this.enableKeys = config.enableKeys ?? true;
+    this.keyRotateSpeed = config.keyRotateSpeed ?? 0.02;
+    this.keyZoomSpeed = config.keyZoomSpeed ?? 100;
 
     // Initialize spherical coordinates from camera position
     const offset = vec3.create();
@@ -96,6 +106,10 @@ export class OrbitControls {
     this.domElement.addEventListener('mousedown', this.onMouseDown);
     this.domElement.addEventListener('wheel', this.onWheel, { passive: false });
     this.domElement.addEventListener('contextmenu', this.onContextMenu);
+
+    if (this.enableKeys) {
+      window.addEventListener('keydown', this.onKeyDown);
+    }
   }
 
   private handleMouseDown(event: MouseEvent): void {
@@ -151,6 +165,46 @@ export class OrbitControls {
 
   private handleContextMenu(event: Event): void {
     event.preventDefault();
+  }
+
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (!this.enableKeys) return;
+
+    switch (event.key) {
+      // Zoom controls
+      case '+':
+      case '=':
+        // Zoom in
+        this.sphericalDelta.radius -= this.keyZoomSpeed;
+        break;
+      case '-':
+      case '_':
+        // Zoom out
+        this.sphericalDelta.radius += this.keyZoomSpeed;
+        break;
+
+      // Rotation controls
+      case 'ArrowLeft':
+        // Rotate left
+        this.sphericalDelta.theta -= this.keyRotateSpeed;
+        event.preventDefault();
+        break;
+      case 'ArrowRight':
+        // Rotate right
+        this.sphericalDelta.theta += this.keyRotateSpeed;
+        event.preventDefault();
+        break;
+      case 'ArrowUp':
+        // Rotate up
+        this.sphericalDelta.phi -= this.keyRotateSpeed;
+        event.preventDefault();
+        break;
+      case 'ArrowDown':
+        // Rotate down
+        this.sphericalDelta.phi += this.keyRotateSpeed;
+        event.preventDefault();
+        break;
+    }
   }
 
   /**
@@ -210,5 +264,9 @@ export class OrbitControls {
     this.domElement.removeEventListener('contextmenu', this.onContextMenu);
     document.removeEventListener('mousemove', this.onMouseMove);
     document.removeEventListener('mouseup', this.onMouseUp);
+
+    if (this.enableKeys) {
+      window.removeEventListener('keydown', this.onKeyDown);
+    }
   }
 }

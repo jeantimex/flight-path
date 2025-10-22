@@ -182,17 +182,16 @@ export class CurveManager {
     const estimatedVisible = Math.floor(flightCount * 0.5); // ~50% visible (hemisphere)
     const decimation = Math.ceil(estimatedVisible / CurveManager.MAX_CURVES);
 
-    // Reduce segments based on total load (more generous with improved performance)
-    // Improved from 16→8→4→2 to 32→24→16→8 for better visual quality
+    // Reduce segments based on total load
     let activeSegments: number;
-    if (estimatedVisible <= 150000) {
-      activeSegments = 32; // Full detail up to 150K visible (300K total)
-    } else if (estimatedVisible <= 300000) {
-      activeSegments = 24; // High detail up to 300K visible (600K total)
-    } else if (estimatedVisible <= 450000) {
-      activeSegments = 16; // Medium detail up to 450K visible (900K total)
+    if (estimatedVisible <= 100000) {
+      activeSegments = 16;
+    } else if (estimatedVisible <= 250000) {
+      activeSegments = 8;
+    } else if (estimatedVisible <= 400000) {
+      activeSegments = 4;
     } else {
-      activeSegments = 8; // Minimum detail at very high counts (>900K flights)
+      activeSegments = 2; // Minimum detail at very high counts (>800K flights)
     }
 
     return { activeSegments, decimation };
