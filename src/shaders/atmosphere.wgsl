@@ -46,10 +46,10 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
-  // Rim lighting: glow at edges where normal faces away from camera
+  // Atmosphere with stronger edge fade
   let viewDir = normalize(uniforms.cameraPosition - input.worldPosition);
-  let rawIntensity = pow(0.6 - dot(input.worldNormal, viewDir), 2.0);
-  let intensity = rawIntensity * 0.3; // Reduce intensity by 70% for lighter atmosphere
+  let rawIntensity = pow(0.6 - dot(input.worldNormal, viewDir), 2.5);
+  let intensity = rawIntensity * 0.7; // Less intensity at outer edges
 
   // Blue atmospheric glow
   let color = vec3<f32>(0.3, 0.6, 1.0);

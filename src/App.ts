@@ -385,10 +385,10 @@ export class WebGPUApp {
 
       console.log('✅ Stars initialized');
 
-      // Initialize Atmosphere (very thin glow like main branch)
+      // Initialize Atmosphere (matching main branch)
       this.atmosphere = new AtmosphereWebGPU(this.gpuContext.device, {
         earthRadius: EARTH_RADIUS,
-        scale: 1.025, // Very thin atmosphere glow
+        scale: 1.08, // Slightly bigger atmosphere with edge fade
       });
       this.atmosphere.createPipeline(this.gpuContext.presentationFormat);
 
