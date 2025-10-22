@@ -274,13 +274,20 @@ export class WebGPUApp {
       // Check if ready to start
       this.checkReadyToStart();
 
-      // Initialize Curves
+      // Initialize Curves (render-only, tessellation now merged into flight update shader)
+      const curveSegments = 16; // Segments per curve (adaptive LOD will adjust dynamically)
       this.curves = new CurveManager(this.gpuContext.device, {
-        segmentsPerCurve: 16, // 16 segments per curve (reduced from 32 for performance)
+        segmentsPerCurve: curveSegments,
       });
       this.curves.setFlightManager(this.flightManager);
-      this.curves.createComputePipeline();
+      // Note: No createComputePipeline() - tessellation merged into FlightManager shader
       this.curves.createRenderPipeline(this.gpuContext.presentationFormat);
+
+      // Bind curve buffer to flight manager for merged shader (flight update + curve tessellation)
+      const curveBuffer = this.curves.getLineVerticesBuffer();
+      if (curveBuffer) {
+        this.flightManager.setCurveBuffer(curveBuffer, curveSegments, 1); // Initial params, updated dynamically
+      }
 
       console.log('✅ Curves initialized');
 
@@ -373,15 +380,17 @@ export class WebGPUApp {
     // Create command encoder
     const commandEncoder = device.createCommandEncoder();
 
-    // Compute pass: Update flight positions
-    if (this.flightManager) {
+    // Compute pass: Update flight positions + Tessellate curves (merged shader)
+    if (this.flightManager && this.curves) {
       const camPos = this.camera.position;
-      this.flightManager.update(commandEncoder, deltaTime, [camPos[0], camPos[1], camPos[2]]);
-    }
 
-    // Compute pass: Tessellate curves
-    if (this.curves) {
-      this.curves.tessellate(commandEncoder);
+      // Update curve LOD params dynamically based on flight count
+      const flightCount = this.flightManager.getVisibleFlightCount();
+      const { activeSegments, decimation } = this.curves.calculateLOD(flightCount);
+      this.flightManager.updateCurveParams(activeSegments, decimation);
+
+      // Merged update: flight positions + curve tessellation in single pass
+      this.flightManager.update(commandEncoder, deltaTime, [camPos[0], camPos[1], camPos[2]]);
     }
 
     // Compute pass: Visibility culling for indirect rendering

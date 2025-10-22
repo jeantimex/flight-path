@@ -23,7 +23,7 @@ export class FlightManager {
   private planeTextureCount: number;
 
   // Uniform buffer size constant
-  private static readonly UNIFORM_BUFFER_SIZE = 48; // deltaTime + earthRadius + animationSpeed + cullingDistance + cameraPosition + frameNumber + cameraDirection + pad
+  private static readonly UNIFORM_BUFFER_SIZE = 64; // deltaTime + earthRadius + animationSpeed + cullingDistance + cameraPosition + frameNumber + cameraDirection + segmentsPerCurve + decimation + pad
 
   // Buffers
   private controlPointsBuffer: GPUBuffer | null = null;
@@ -34,6 +34,12 @@ export class FlightManager {
   // Compute pipeline
   private computePipeline: GPUComputePipeline | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+
+  // Curve rendering integration (merged shader)
+  private curveLineVerticesBuffer: GPUBuffer | null = null;
+  private curveSegmentsPerCurve: number = 16;
+  private curveDecimation: number = 1;
 
   // Reusable uniform data
   private uniformData: Float32Array;
@@ -55,13 +61,14 @@ export class FlightManager {
     this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
-    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) + cameraDirection (12) + pad (4) = 48 bytes
-    this.uniformData = new Float32Array(12);
+    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) + cameraDirection (12) + segmentsPerCurve (4) + decimation (4) + pad (8) = 64 bytes
+    this.uniformData = new Float32Array(16);
     this.uniformData[1] = this.earthRadius;
     this.uniformData[2] = this.animationSpeed;
     this.uniformData[3] = 20000; // Default culling distance (covers most of visible globe)
-    // Note: uniformData[7] will be written as u32 via Uint32Array view
+    // Note: uniformData[7] will be written as u32 via Uint32Array view (frameNumber)
     // Note: uniformData[8-10] will be normalized camera direction
+    // Note: uniformData[11-12] will be curve params (segmentsPerCurve, decimation) as u32
 
     // Initialize buffers
     this.createBuffers();
@@ -288,8 +295,8 @@ export class FlightManager {
       code: flightUpdateShader,
     });
 
-    // Create bind group layout
-    const bindGroupLayout = this.device.createBindGroupLayout({
+    // Create bind group layout (with curve buffer support)
+    this.bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
         {
           binding: 0,
@@ -311,24 +318,30 @@ export class FlightManager {
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: 'storage' },
         },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: 'storage' }, // Curve line vertices (optional, set later)
+        },
       ],
     });
 
-    // Create bind group
+    // Create bind group (will be recreated when curve buffer is set)
     this.bindGroup = this.device.createBindGroup({
-      layout: bindGroupLayout,
+      layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer! } },
         { binding: 1, resource: { buffer: this.controlPointsBuffer! } },
         { binding: 2, resource: { buffer: this.flightStateBuffer! } },
         { binding: 3, resource: { buffer: this.outputBuffer! } },
+        { binding: 4, resource: { buffer: this.outputBuffer! } }, // Dummy buffer (replaced when curve buffer set)
       ],
     });
 
     // Create compute pipeline
     this.computePipeline = this.device.createComputePipeline({
       layout: this.device.createPipelineLayout({
-        bindGroupLayouts: [bindGroupLayout],
+        bindGroupLayouts: [this.bindGroupLayout],
       }),
       compute: {
         module: shaderModule,
@@ -337,6 +350,33 @@ export class FlightManager {
     });
 
     console.log('✅ Flight compute pipeline created');
+  }
+
+  public setCurveBuffer(curveLineVerticesBuffer: GPUBuffer, segmentsPerCurve: number, decimation: number): void {
+    this.curveLineVerticesBuffer = curveLineVerticesBuffer;
+    this.curveSegmentsPerCurve = segmentsPerCurve;
+    this.curveDecimation = decimation;
+
+    // Recreate bind group with curve buffer
+    if (this.bindGroupLayout) {
+      this.bindGroup = this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer! } },
+          { binding: 1, resource: { buffer: this.controlPointsBuffer! } },
+          { binding: 2, resource: { buffer: this.flightStateBuffer! } },
+          { binding: 3, resource: { buffer: this.outputBuffer! } },
+          { binding: 4, resource: { buffer: this.curveLineVerticesBuffer } },
+        ],
+      });
+
+      console.log('✅ Curve buffer bound to flight manager (merged shader enabled)');
+    }
+  }
+
+  public updateCurveParams(segmentsPerCurve: number, decimation: number): void {
+    this.curveSegmentsPerCurve = segmentsPerCurve;
+    this.curveDecimation = decimation;
   }
 
   public update(commandEncoder: GPUCommandEncoder, deltaTime: number, cameraPosition: [number, number, number]): void {
@@ -366,6 +406,10 @@ export class FlightManager {
     this.uniformData[8] = cameraPosition[0] / camLength;
     this.uniformData[9] = cameraPosition[1] / camLength;
     this.uniformData[10] = cameraPosition[2] / camLength;
+
+    // Curve tessellation params (write as u32)
+    uniformDataU32[11] = this.curveSegmentsPerCurve;
+    uniformDataU32[12] = this.curveDecimation;
 
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, this.uniformData.buffer);
 

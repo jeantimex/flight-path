@@ -13,7 +13,11 @@ struct Uniforms {
   cameraPosition: vec3<f32>,
   frameNumber: u32,
   cameraDirection: vec3<f32>,  // Precomputed normalize(cameraPosition)
-  _pad0: f32,
+  segmentsPerCurve: u32,        // Curve tessellation params
+  decimation: u32,              // Show every Nth curve
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -52,6 +56,16 @@ struct FlightOutput {
 
 @group(0) @binding(3) var<storage, read_write> outputs: array<FlightOutput>;
 
+// Curve line vertices output (for rendering curves)
+struct LineVertex {
+  position: vec3<f32>,
+  distance: f32,  // Cumulative distance along curve
+  color: vec3<f32>,
+  _pad0: f32,
+};
+
+@group(0) @binding(4) var<storage, read_write> lineVertices: array<LineVertex>;
+
 // Catmull-Rom curve interpolation
 fn catmullRom(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, t: f32) -> vec3<f32> {
   let t2 = t * t;
@@ -79,9 +93,20 @@ fn catmullRomTangent(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>,
   return p0 * v0 + p1 * v1 + p2 * v2 + p3 * v3;
 }
 
+// Unpack color from u32
+fn unpackColor(packed: u32) -> vec3<f32> {
+  let r = f32((packed >> 24u) & 0xFFu) / 255.0;
+  let g = f32((packed >> 16u) & 0xFFu) / 255.0;
+  let b = f32((packed >> 8u) & 0xFFu) / 255.0;
+  return vec3<f32>(r, g, b);
+}
+
 // Flag bits
 const FLAG_RETURN_FLIGHT: u32 = 1u;
 const FLAG_VISIBLE: u32 = 2u;
+
+// Curve tessellation constants
+const ARC_LENGTH_SAMPLES: u32 = 10u;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
@@ -161,6 +186,70 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     direction = -direction;
   }
   outputs[flightIndex].direction = direction;
+
+  // === MERGED: Curve Tessellation ===
+  // Tessellate curve vertices for this flight (merged to eliminate second pass)
+
+  // Check decimation: only tessellate every Nth curve
+  if (flightIndex % uniforms.decimation == 0u) {
+    // Only tessellate if visible
+    let isVisible = (updatedFlags & FLAG_VISIBLE) != 0u;
+
+    if (isVisible) {
+      // Get color for this flight
+      let color = unpackColor(state.packedColor);
+
+      // Tessellate curve segments
+      let segmentsPerCurve = uniforms.segmentsPerCurve;
+      let verticesPerCurve = segmentsPerCurve * 2u; // line-list: 2 vertices per segment
+
+      // Calculate arc length for distance
+      var totalLength = 0.0;
+      var prevPos = cp.p1; // Start at p1 (actual curve start)
+      for (var i = 1u; i <= ARC_LENGTH_SAMPLES; i++) {
+        let sampleT = f32(i) / f32(ARC_LENGTH_SAMPLES);
+        let samplePos = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, sampleT);
+        totalLength += length(samplePos - prevPos);
+        prevPos = samplePos;
+      }
+
+      // Generate line vertices for each segment
+      for (var segIdx = 0u; segIdx < segmentsPerCurve; segIdx++) {
+        // Start vertex
+        let tStart = f32(segIdx) / f32(segmentsPerCurve);
+        let posStart = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, tStart);
+        let distStart = tStart * totalLength;
+        let gradientStart = 1.0 - abs(tStart - 0.5) * 2.0;
+        let colorStart = color * (0.5 + 0.5 * gradientStart);
+
+        let vertexIdxStart = flightIndex * verticesPerCurve + segIdx * 2u;
+        lineVertices[vertexIdxStart].position = posStart;
+        lineVertices[vertexIdxStart].distance = distStart;
+        lineVertices[vertexIdxStart].color = colorStart;
+
+        // End vertex
+        let tEnd = f32(segIdx + 1u) / f32(segmentsPerCurve);
+        let posEnd = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, tEnd);
+        let distEnd = tEnd * totalLength;
+        let gradientEnd = 1.0 - abs(tEnd - 0.5) * 2.0;
+        let colorEnd = color * (0.5 + 0.5 * gradientEnd);
+
+        let vertexIdxEnd = flightIndex * verticesPerCurve + segIdx * 2u + 1u;
+        lineVertices[vertexIdxEnd].position = posEnd;
+        lineVertices[vertexIdxEnd].distance = distEnd;
+        lineVertices[vertexIdxEnd].color = colorEnd;
+      }
+    } else {
+      // Flight not visible - write degenerate vertices
+      let verticesPerCurve = uniforms.segmentsPerCurve * 2u;
+      for (var vIdx = 0u; vIdx < verticesPerCurve; vIdx++) {
+        let vertexIdx = flightIndex * verticesPerCurve + vIdx;
+        lineVertices[vertexIdx].position = vec3<f32>(0.0, 0.0, 0.0);
+        lineVertices[vertexIdx].distance = 0.0;
+        lineVertices[vertexIdx].color = vec3<f32>(0.0, 0.0, 0.0);
+      }
+    }
+  }
 
   // Write back updated state
   flightStates[flightIndex] = state;
