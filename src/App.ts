@@ -10,10 +10,14 @@ import {
   showError,
   type WebGPUContext
 } from './core/WebGPUContext.ts';
+import { PerspectiveCamera } from './core/PerspectiveCamera.ts';
+import { OrbitControls } from './core/OrbitControls.ts';
 
 export class WebGPUApp {
   private canvas: HTMLCanvasElement;
   private gpuContext: WebGPUContext | null = null;
+  private camera: PerspectiveCamera | null = null;
+  private controls: OrbitControls | null = null;
   private animationFrameId: number | null = null;
   private lastTime: number = 0;
 
@@ -46,6 +50,32 @@ export class WebGPUApp {
       console.log('Device:', this.gpuContext.device);
       console.log('Format:', this.gpuContext.presentationFormat);
 
+      // Initialize camera
+      const aspect = this.canvas.width / this.canvas.height;
+      this.camera = new PerspectiveCamera({
+        fov: 75,
+        aspect,
+        near: 0.1,
+        far: 50000,
+        position: [0, 2000, 8000],
+        target: [0, 0, 0],
+        up: [0, 1, 0],
+      });
+
+      // Initialize orbit controls
+      this.controls = new OrbitControls(this.camera, this.canvas, {
+        enableDamping: true,
+        dampingFactor: 0.05,
+        minDistance: 3200,
+        maxDistance: 20000,
+        maxPolarAngle: Math.PI,
+        enablePan: false,
+        enableZoom: true,
+        enableRotate: true,
+      });
+
+      console.log('✅ Camera and controls initialized');
+
       // Setup resize handler
       window.addEventListener('resize', this.handleResize);
 
@@ -63,6 +93,12 @@ export class WebGPUApp {
   private handleResize = (): void => {
     if (!this.gpuContext) return;
     resizeCanvas(this.gpuContext, this.canvas);
+
+    // Update camera aspect ratio
+    if (this.camera) {
+      const aspect = this.canvas.width / this.canvas.height;
+      this.camera.setAspect(aspect);
+    }
   };
 
   private frame = (now: number): void => {
@@ -77,7 +113,10 @@ export class WebGPUApp {
   };
 
   private render(_deltaTime: number): void {
-    if (!this.gpuContext) return;
+    if (!this.gpuContext || !this.camera || !this.controls) return;
+
+    // Update camera controls
+    this.controls.update();
 
     const { device, context, depthTextureView } = this.gpuContext;
 
@@ -131,6 +170,10 @@ export class WebGPUApp {
       cancelAnimationFrame(this.animationFrameId);
     }
     window.removeEventListener('resize', this.handleResize);
+
+    if (this.controls) {
+      this.controls.dispose();
+    }
 
     if (this.gpuContext) {
       this.gpuContext.depthTexture.destroy();
