@@ -8,8 +8,8 @@
 struct Uniforms {
   deltaTime: f32,
   earthRadius: f32,
+  animationSpeed: f32,
   _pad0: f32,
-  _pad1: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -98,7 +98,7 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let isReturnFlight = (flags & FLAG_RETURN_FLIGHT) != 0u;
 
   // Update curve parameter
-  var newT = state.t + uniforms.deltaTime * state.speed;
+  var newT = state.t + uniforms.deltaTime * state.speed * uniforms.animationSpeed;
 
   // Handle loop/return flight
   if (isReturnFlight) {

@@ -44,6 +44,9 @@ export interface ControlsWebGPUCallbacks {
   onPlaneSizeChange?: (size: number) => void;
   onFlightCountChange?: (count: number) => void;
   onRestart?: () => void;
+  onAnimationSpeedChange?: (speed: number) => void;
+  onElevationOffsetChange?: (offset: number) => void;
+  onPlaneColorChange?: (color: string) => void;
 }
 
 export class ControlsWebGPU {
@@ -315,29 +318,38 @@ export class ControlsWebGPU {
         this.callbacks.onPlaneSizeChange?.(baseSize);
       });
 
-    // Note: Plane Color not implemented yet
-    const planeColorCtrl = planeFolder
-      .add(this.params, 'planeColor')
+    // Plane Color
+    planeFolder
+      .addColor(this.params, 'planeColor')
       .name('Plane Color')
-      .listen();
-    planeColorCtrl.domElement.style.pointerEvents = 'none';
-    planeColorCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: string) => {
+        if (this.planes) {
+          this.planes.setPlaneColor(value);
+        }
+        this.callbacks.onPlaneColorChange?.(value);
+      });
 
-    // Note: Animation Speed not implemented yet
-    const animSpeedCtrl = planeFolder
+    // Animation Speed
+    planeFolder
       .add(this.params, 'animationSpeed', 0.01, 1.0, 0.01)
       .name('Animation Speed')
-      .listen();
-    animSpeedCtrl.domElement.style.pointerEvents = 'none';
-    animSpeedCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.flightManager) {
+          this.flightManager.setAnimationSpeed(value);
+        }
+        this.callbacks.onAnimationSpeedChange?.(value);
+      });
 
-    // Note: Elevation Offset not implemented yet
-    const elevationCtrl = planeFolder
+    // Elevation Offset
+    planeFolder
       .add(this.params, 'elevationOffset', 0, 100, 1)
       .name('Elevation Offset')
-      .listen();
-    elevationCtrl.domElement.style.pointerEvents = 'none';
-    elevationCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.planes) {
+          this.planes.setElevationOffset(value);
+        }
+        this.callbacks.onElevationOffsetChange?.(value);
+      });
 
     // Read-only: Only SVG supported
     const styleCtrl = planeFolder
@@ -362,6 +374,10 @@ export class ControlsWebGPU {
 
   public setPlanes(planes: PlanesWebGPU): void {
     this.planes = planes;
+    // Apply initial plane color
+    if (this.params.planeColor) {
+      this.planes.setPlaneColor(this.params.planeColor);
+    }
   }
 
   public setCurves(curves: CurveManager): void {

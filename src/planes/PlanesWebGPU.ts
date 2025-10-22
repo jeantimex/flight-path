@@ -46,6 +46,13 @@ export class PlanesWebGPU {
   // Visibility
   private planesVisible: boolean = true;
 
+  // Elevation offset
+  private elevationOffset: number = 0;
+
+  // Plane color override
+  private planeColorOverride: [number, number, number] = [1.0, 0.4, 0.4]; // #ff6666
+  private useColorOverride: number = 1.0; // Enabled by default to match legacy
+
   // Reusable uniform data
   private uniformData: Float32Array;
 
@@ -57,13 +64,20 @@ export class PlanesWebGPU {
     this.baseSize = config.baseSize ?? 10;
 
     // Allocate uniform data buffer (reused every frame)
-    // viewProjectionMatrix (64) + cameraRight (16) + cameraUp (16) + baseSize (4) + useTexture (4) + planesVisible (4) + atlasColumns (4) + atlasRows (4) + pad (8) = 128 bytes
-    this.uniformData = new Float32Array(32);
+    // Uniform buffer alignment: vec3 requires 16-byte alignment
+    // viewProjectionMatrix (64) + cameraRight (16) + cameraUp (16) + baseSize (4) + useTexture (4) + planesVisible (4) + atlasColumns (4) + atlasRows (4) + elevationOffset (4) + pad (12) + planeColorOverride (16 with padding) + useColorOverride (4) + pad (12) = 160 bytes
+    this.uniformData = new Float32Array(40);
     this.uniformData[24] = this.baseSize;
     this.uniformData[25] = 0.0; // useTexture
     this.uniformData[26] = 1.0; // planesVisible
     this.uniformData[27] = 1.0; // atlasColumns
     this.uniformData[28] = 1.0; // atlasRows
+    this.uniformData[29] = 0.0; // elevationOffset
+    // Padding slots 30, 31, 32 for vec3 alignment
+    this.uniformData[32] = 1.0; // planeColorOverride.r (at offset 128)
+    this.uniformData[33] = 0.4; // planeColorOverride.g (at offset 132)
+    this.uniformData[34] = 0.4; // planeColorOverride.b (at offset 136)
+    this.uniformData[35] = 1.0; // useColorOverride (at offset 140) - enabled by default
 
     // Create dummy texture
     this.createDummyTexture();
@@ -154,7 +168,7 @@ export class PlanesWebGPU {
 
     // Create uniform buffer
     this.uniformBuffer = this.device.createBuffer({
-      size: 128, // 32 floats * 4 bytes
+      size: 160, // 40 floats * 4 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -299,6 +313,26 @@ export class PlanesWebGPU {
   public setBaseSize(size: number): void {
     this.baseSize = size;
     this.uniformData[24] = size;
+  }
+
+  public setElevationOffset(offset: number): void {
+    this.elevationOffset = Math.max(0, Math.min(offset, 100));
+    this.uniformData[29] = this.elevationOffset;
+  }
+
+  public setPlaneColor(hex: string): void {
+    // Parse hex color (#RRGGBB)
+    const cleanHex = hex.replace('#', '');
+    const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
+    const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
+    const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
+
+    this.planeColorOverride = [r, g, b];
+    this.uniformData[32] = r; // Offset 128 (vec3 alignment)
+    this.uniformData[33] = g; // Offset 132
+    this.uniformData[34] = b; // Offset 136
+    this.useColorOverride = 1.0;
+    this.uniformData[35] = 1.0; // Offset 140
   }
 
   public destroy(): void {

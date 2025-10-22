@@ -35,6 +35,9 @@ export class FlightManager {
   // Reusable uniform data
   private uniformData: Float32Array;
 
+  // Animation speed control
+  private animationSpeed: number = 0.1;
+
   constructor(device: GPUDevice, config: FlightManagerConfig = {}) {
     this.device = device;
     // Always allocate for 1M flights (Option B: pre-allocate max)
@@ -46,9 +49,10 @@ export class FlightManager {
     this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
-    // deltaTime (4) + earthRadius (4) + pad (8) = 16 bytes
+    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + pad (4) = 16 bytes
     this.uniformData = new Float32Array(4);
     this.uniformData[1] = this.earthRadius;
+    this.uniformData[2] = this.animationSpeed;
 
     // Initialize buffers
     this.createBuffers();
@@ -380,6 +384,11 @@ export class FlightManager {
 
   public setVisibleFlightCount(count: number): void {
     this.visibleFlightCount = Math.max(1, Math.min(count, this.flightCount));
+  }
+
+  public setAnimationSpeed(speed: number): void {
+    this.animationSpeed = Math.max(0.01, Math.min(speed, 1.0));
+    this.uniformData[2] = this.animationSpeed;
   }
 
   public destroy(): void {

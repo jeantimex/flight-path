@@ -16,9 +16,14 @@ struct Uniforms {
   planesVisible: f32,
   atlasColumns: f32,
   atlasRows: f32,
+  elevationOffset: f32,
   _pad2: f32,
   _pad3: f32,
+  planeColorOverride: vec3<f32>, // vec3 requires 16-byte alignment (offset 128)
+  useColorOverride: f32,          // offset 140
   _pad4: f32,
+  _pad5: f32,
+  _pad6: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -156,11 +161,18 @@ fn vertexMain(
   // Create billboard vertex in local space, then transform to world space
   let localOffset = right * offset.x + up * offset.y;
   let billboardOffset = localOffset * size * uniforms.baseSize;
-  let worldPosition = flightOutput.position + billboardOffset;
+  let elevationOffset = worldUp * uniforms.elevationOffset;
+  let worldPosition = flightOutput.position + billboardOffset + elevationOffset;
 
   // Transform to clip space
   output.position = uniforms.viewProjectionMatrix * vec4<f32>(worldPosition, 1.0);
-  output.color = color;
+
+  // Apply color override if enabled
+  var finalColor = color;
+  if (uniforms.useColorOverride > 0.5) {
+    finalColor = uniforms.planeColorOverride;
+  }
+  output.color = finalColor;
   output.uv = uv;
 
   return output;
@@ -179,8 +191,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
       discard;
     }
 
-    // Paint mask: tint gray parts (#D9D9D9 in linear space ≈ 0.6939)
-    let paintBase = vec3<f32>(0.6939);
+    // Paint mask: replace gray parts (#D9D9D9) with gradient color
+    // #D9D9D9 = RGB(217, 217, 217) / 255 = 0.851 in sRGB space
+    let paintBase = vec3<f32>(0.851);
     let paintDistance = distance(textureColor.rgb, paintBase);
     let paintMask = smoothstep(0.25, 0.0, paintDistance);
 
