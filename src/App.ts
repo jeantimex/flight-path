@@ -270,22 +270,15 @@ export class WebGPUApp {
         if (this.camera) {
           this.camera.setPosition(x, y, z);
           this.camera.updateViewMatrix(); // CRITICAL: Update view matrix for camera to take effect!
-          // Log every 0.5 seconds
-          if (Math.floor(elapsed / 500) !== Math.floor((elapsed - 16) / 500)) {
-            const dist = Math.sqrt(x*x + y*y + z*z);
-            console.log(`⏱️ Progress: ${(progress*100).toFixed(0)}%, Distance: ${dist.toFixed(0)}`);
-          }
         }
 
         if (progress < 1) {
           requestAnimationFrame(animate);
         } else {
-          console.log('✅ Camera animation complete');
           this.isAnimatingCamera = false;
 
           // Create OrbitControls now that camera is at final position
           if (!this.controls) {
-            console.log('🎮 Creating OrbitControls after animation');
             this.controls = new OrbitControls(this.camera!, this.canvas, {
               enableDamping: true,
               dampingFactor: 0.05,
