@@ -53,7 +53,7 @@ export class PlanesWebGPU {
 
   // Plane color override
   private planeColorOverride: [number, number, number] = [1.0, 0.4, 0.4]; // #ff6666
-  private useColorOverride: number = 1.0; // Enabled by default to match legacy
+  private useColorOverride: number = 0.0; // Disabled by default (use random colors)
 
   // Plane style
   private planeStyle: 'SVG' | 'Pane' = 'SVG';
@@ -97,7 +97,7 @@ export class PlanesWebGPU {
     this.uniformData[32] = 1.0; // planeColorOverride.r (at offset 128)
     this.uniformData[33] = 0.4; // planeColorOverride.g (at offset 132)
     this.uniformData[34] = 0.4; // planeColorOverride.b (at offset 136)
-    this.uniformData[35] = 1.0; // useColorOverride (at offset 140) - enabled by default
+    this.uniformData[35] = 0.0; // useColorOverride (at offset 140) - disabled by default (random colors)
 
     // Create dummy texture
     this.createDummyTexture();
@@ -536,8 +536,7 @@ export class PlanesWebGPU {
     this.uniformData[32] = r; // Offset 128 (vec3 alignment)
     this.uniformData[33] = g; // Offset 132
     this.uniformData[34] = b; // Offset 136
-    this.useColorOverride = 1.0;
-    this.uniformData[35] = 1.0; // Offset 140
+    // Note: useColorOverride is controlled by setUseColorOverride(), not here
   }
 
   public setPlaneStyle(style: 'SVG' | 'Pane'): void {
@@ -546,12 +545,15 @@ export class PlanesWebGPU {
     if (style === 'Pane') {
       // Pane mode: disable texture, use solid colors
       this.uniformData[25] = 0.0; // useTexture = false
-      this.uniformData[35] = 0.0; // useColorOverride = false (use random colors)
     } else {
-      // SVG mode: enable texture and color override
+      // SVG mode: enable texture
       this.uniformData[25] = this.texture ? 1.0 : 0.0; // useTexture
-      this.uniformData[35] = 1.0; // useColorOverride = true (use selected color)
     }
+  }
+
+  public setUseColorOverride(useOverride: boolean): void {
+    this.useColorOverride = useOverride ? 1.0 : 0.0;
+    this.uniformData[35] = this.useColorOverride;
   }
 
   public destroy(): void {

@@ -36,6 +36,7 @@ export interface ControlsWebGPUParams {
   planeStyle: string;
   hidePlane: boolean;
   planeColor: string;
+  randomColors: boolean;
 }
 
 export interface ControlsWebGPUCallbacks {
@@ -61,6 +62,7 @@ export class ControlsWebGPU {
   private callbacks: ControlsWebGPUCallbacks;
   private flightCountDebounceTimer: number | null = null;
   private realTimeSunEnabled: boolean = true;
+  private planeColorController: any = null;
 
   constructor(callbacks: ControlsWebGPUCallbacks = {}) {
     this.callbacks = callbacks;
@@ -92,6 +94,7 @@ export class ControlsWebGPU {
       planeStyle: 'SVG',
       hidePlane: false,
       planeColor: '#ff6666',
+      randomColors: true,
     };
 
     // Create dat.GUI
@@ -319,8 +322,30 @@ export class ControlsWebGPU {
         this.callbacks.onPlaneSizeChange?.(baseSize);
       });
 
-    // Plane Color
+    // Random Colors toggle
     planeFolder
+      .add(this.params, 'randomColors')
+      .name('Random Colors')
+      .onChange((value: boolean) => {
+        if (this.planes) {
+          this.planes.setUseColorOverride(!value);
+        }
+        // Enable/disable plane color control
+        if (this.planeColorController) {
+          if (value) {
+            // Disable color picker when random colors enabled
+            this.planeColorController.domElement.style.pointerEvents = 'none';
+            this.planeColorController.domElement.style.opacity = '0.5';
+          } else {
+            // Enable color picker when random colors disabled
+            this.planeColorController.domElement.style.pointerEvents = 'auto';
+            this.planeColorController.domElement.style.opacity = '1.0';
+          }
+        }
+      });
+
+    // Plane Color (only active when not using random colors)
+    this.planeColorController = planeFolder
       .addColor(this.params, 'planeColor')
       .name('Plane Color')
       .onChange((value: string) => {
@@ -329,6 +354,12 @@ export class ControlsWebGPU {
         }
         this.callbacks.onPlaneColorChange?.(value);
       });
+
+    // Apply initial disabled state if random colors is enabled
+    if (this.params.randomColors) {
+      this.planeColorController.domElement.style.pointerEvents = 'none';
+      this.planeColorController.domElement.style.opacity = '0.5';
+    }
 
     // Animation Speed
     planeFolder
@@ -386,6 +417,8 @@ export class ControlsWebGPU {
     if (this.params.planeStyle) {
       this.planes.setPlaneStyle(this.params.planeStyle as 'SVG' | 'Pane');
     }
+    // Apply initial random colors setting
+    this.planes.setUseColorOverride(!this.params.randomColors);
   }
 
   public setCurves(curves: CurveManager): void {
