@@ -38,6 +38,9 @@ export class FlightManager {
   // Animation speed control
   private animationSpeed: number = 0.1;
 
+  // Frame counter for temporal updates
+  private frameNumber: number = 0;
+
   constructor(device: GPUDevice, config: FlightManagerConfig = {}) {
     this.device = device;
     // Always allocate for 1M flights (Option B: pre-allocate max)
@@ -49,11 +52,12 @@ export class FlightManager {
     this.planeTextureCount = config.planeTextureCount ?? 1;
 
     // Allocate uniform data buffer (reused every frame)
-    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + pad (4) = 32 bytes
+    // deltaTime (4) + earthRadius (4) + animationSpeed (4) + cullingDistance (4) + cameraPosition (12) + frameNumber (4) = 32 bytes
     this.uniformData = new Float32Array(8);
     this.uniformData[1] = this.earthRadius;
     this.uniformData[2] = this.animationSpeed;
     this.uniformData[3] = 20000; // Default culling distance (covers most of visible globe)
+    // Note: uniformData[7] will be written as u32 via Uint32Array view
 
     // Initialize buffers
     this.createBuffers();
@@ -344,7 +348,11 @@ export class FlightManager {
     this.uniformData[4] = cameraPosition[0];
     this.uniformData[5] = cameraPosition[1];
     this.uniformData[6] = cameraPosition[2];
-    // uniformData[7] = padding
+    // uniformData[7] = frameNumber (write as u32)
+    const uniformDataU32 = new Uint32Array(this.uniformData.buffer);
+    uniformDataU32[7] = this.frameNumber;
+    this.frameNumber++; // Increment for next frame
+
     this.device.queue.writeBuffer(this.uniformBuffer!, 0, this.uniformData.buffer);
 
     // Dispatch compute shader
