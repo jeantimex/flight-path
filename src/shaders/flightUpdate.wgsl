@@ -130,12 +130,21 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   let position = catmullRom(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
   let tangent = catmullRomTangent(cp.p0, cp.p1, cp.p2, cp.p3, state.t);
 
-  // Distance-based culling: check if flight is within culling distance
+  // Visibility culling: distance + hemisphere check
   let distanceToCamera = length(position - uniforms.cameraPosition);
   var updatedFlags = flags & ~FLAG_VISIBLE; // Clear visibility flag
 
+  // Check if within culling distance AND on visible hemisphere
   if (distanceToCamera <= uniforms.cullingDistance) {
-    updatedFlags = updatedFlags | FLAG_VISIBLE; // Set visibility flag
+    // Backface culling: check if plane is on visible side of Earth
+    let pointDir = normalize(position);
+    let cameraDir = normalize(uniforms.cameraPosition);
+    let dotProduct = dot(pointDir, cameraDir);
+
+    // Only visible if on front hemisphere (dot > -0.1)
+    if (dotProduct > -0.1) {
+      updatedFlags = updatedFlags | FLAG_VISIBLE; // Set visibility flag
+    }
   }
 
   // Update flags in state
