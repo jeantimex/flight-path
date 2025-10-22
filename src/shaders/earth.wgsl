@@ -13,9 +13,9 @@ struct Uniforms {
   lightDirection: vec3<f32>,
   _pad1: f32,
   shininess: f32,
-  _pad2: f32,
-  _pad3: f32,
-  _pad4: f32,
+  dayNightEnabled: f32,
+  dayBrightness: f32,    // 0.0 to 1.0
+  nightBrightness: f32,  // 0.0 to 1.0
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -72,22 +72,48 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   // View direction
   let viewDir = normalize(uniforms.cameraPosition - input.worldPosition);
 
-  // Ambient
-  let ambient = 0.3;
+  var finalColor: vec3<f32>;
 
-  // Diffuse (Lambertian)
-  let diffuse = max(dot(normal, lightDir), 0.0);
+  if (uniforms.dayNightEnabled > 0.5) {
+    // Day/Night lighting enabled
+    // Calculate sun angle (-1 to 1, where 1 = directly facing sun)
+    let sunAngle = dot(normal, lightDir);
 
-  // Specular (Phong)
-  let reflectDir = reflect(-lightDir, normal);
-  let spec = pow(max(dot(viewDir, reflectDir), 0.0), uniforms.shininess);
-  let specular = spec * 0.2; // Specular intensity
+    // Diffuse lighting (0 to 1)
+    let diffuse = max(sunAngle, 0.0);
 
-  // Combine lighting
-  let lighting = ambient + diffuse + specular;
+    // Specular (Phong)
+    let reflectDir = reflect(-lightDir, normal);
+    let spec = pow(max(dot(viewDir, reflectDir), 0.0), uniforms.shininess);
+    let specular = spec * 0.2;
 
-  // Apply lighting to texture color
-  let finalColor = texColor.rgb * lighting;
+    // Convert brightness percentages to intensity multipliers
+    // dayBrightness of 0.7 (70%) gives dayIntensity of ~1.6
+    // nightBrightness of 0.4 (40%) gives nightIntensity of ~0.5
+    let dayIntensity = uniforms.dayBrightness * 2.0 + 0.2;
+    let nightIntensity = uniforms.nightBrightness * 1.0 + 0.1;
+
+    // Smooth transition at terminator (sunAngle from -0.2 to 0.2)
+    let terminatorBlend = smoothstep(-0.2, 0.2, sunAngle);
+
+    // Blend between night and day lighting
+    let ambientIntensity = mix(nightIntensity, dayIntensity * 0.95, terminatorBlend);
+
+    // Day side: full lighting with specular
+    // Night side: just ambient (simulating city lights/moonlight)
+    let lighting = ambientIntensity + diffuse * dayIntensity + specular;
+
+    finalColor = texColor.rgb * lighting;
+  } else {
+    // Day/Night disabled: use simple lighting
+    let ambient = 0.3;
+    let diffuse = max(dot(normal, lightDir), 0.0);
+    let reflectDir = reflect(-lightDir, normal);
+    let spec = pow(max(dot(viewDir, reflectDir), 0.0), uniforms.shininess);
+    let specular = spec * 0.2;
+    let lighting = ambient + diffuse + specular;
+    finalColor = texColor.rgb * lighting;
+  }
 
   return vec4<f32>(finalColor, texColor.a);
 }

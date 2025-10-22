@@ -8,6 +8,7 @@ import type { PlanesWebGPU } from '../planes/PlanesWebGPU.ts';
 import type { CurveManager } from '../curves/CurveManager.ts';
 import type { FlightManager } from '../flights/FlightManager.ts';
 import type { AtmosphereWebGPU } from '../space/AtmosphereWebGPU.ts';
+import type { EarthWebGPU } from '../space/EarthWebGPU.ts';
 
 export interface ControlsWebGPUParams {
   // Earth Controls (placeholders for future implementation)
@@ -52,8 +53,10 @@ export class ControlsWebGPU {
   private curves: CurveManager | null = null;
   private flightManager: FlightManager | null = null;
   private atmosphere: AtmosphereWebGPU | null = null;
+  private earth: EarthWebGPU | null = null;
   private callbacks: ControlsWebGPUCallbacks;
   private flightCountDebounceTimer: number | null = null;
+  private realTimeSunEnabled: boolean = true;
 
   constructor(callbacks: ControlsWebGPUCallbacks = {}) {
     this.callbacks = callbacks;
@@ -107,14 +110,17 @@ export class ControlsWebGPU {
   private setupEarthControls(): void {
     const earthFolder = this.gui.addFolder('Earth Controls');
 
-    // Note: Day/Night Effect not implemented yet
-    const dayNightCtrl = earthFolder
+    // Day/Night Effect toggle
+    earthFolder
       .add(this.params, 'dayNightEffect')
       .name('Day/Night Effect')
-      .listen();
-    dayNightCtrl.domElement.style.pointerEvents = 'none';
-    dayNightCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: boolean) => {
+        if (this.earth) {
+          this.earth.setDayNightEnabled(value);
+        }
+      });
 
+    // Atmosphere Effect toggle
     earthFolder
       .add(this.params, 'atmosphereEffect')
       .name('Atmosphere Effect')
@@ -122,17 +128,27 @@ export class ControlsWebGPU {
         if (this.atmosphere) {
           this.atmosphere.setAtmosphereVisible(value);
         }
-      })
+      });
 
-    // Note: Real-time Sun not implemented yet
-    const realTimeSunCtrl = earthFolder
+    // Real-time Sun toggle
+    earthFolder
       .add(this.params, 'realTimeSun')
       .name('Real-time Sun')
-      .listen();
-    realTimeSunCtrl.domElement.style.pointerEvents = 'none';
-    realTimeSunCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: boolean) => {
+        this.realTimeSunEnabled = value;
+        if (value) {
+          // Reset to current UTC time
+          const now = new Date();
+          const hours = now.getUTCHours() + now.getUTCMinutes() / 60;
+          this.params.simulatedTime = hours;
+          this.params.timeDisplay = this.formatTimeDisplay(hours);
+          if (this.earth) {
+            this.earth.setSimulatedTime(hours);
+          }
+        }
+      });
 
-    // Time Display textbox (editable but not functional yet)
+    // Time Display textbox (editable)
     earthFolder
       .add(this.params, 'timeDisplay')
       .name('Time (UTC)')
@@ -145,47 +161,78 @@ export class ControlsWebGPU {
           if (hours >= 0 && hours <= 24 && minutes >= 0 && minutes < 60) {
             const newTime = hours + minutes / 60;
             this.params.simulatedTime = newTime;
-            // Update display to standard format
-            this.params.timeDisplay = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} UTC`;
+            this.params.timeDisplay = this.formatTimeDisplay(newTime);
+            this.realTimeSunEnabled = false;
+            this.params.realTimeSun = false;
+            if (this.earth) {
+              this.earth.setSimulatedTime(newTime);
+            }
           }
         }
       })
       .listen();
 
-    const timeSliderCtrl = earthFolder
+    // Time Slider (0-24 hours)
+    earthFolder
       .add(this.params, 'simulatedTime', 0, 24, 0.1)
       .name('Time Slider')
+      .onChange((value: number) => {
+        this.params.timeDisplay = this.formatTimeDisplay(value);
+        this.realTimeSunEnabled = false;
+        this.params.realTimeSun = false;
+        if (this.earth) {
+          this.earth.setSimulatedTime(value);
+        }
+      })
       .listen();
-    timeSliderCtrl.domElement.style.pointerEvents = 'none';
-    timeSliderCtrl.domElement.style.opacity = '0.5';
 
-    // Note: Reset Sun Position not implemented yet
-    const resetButton = { reset: () => {} };
-    const resetCtrl = earthFolder
+    // Reset Sun Position button
+    const resetButton = {
+      reset: () => {
+        this.realTimeSunEnabled = true;
+        this.params.realTimeSun = true;
+        const now = new Date();
+        const hours = now.getUTCHours() + now.getUTCMinutes() / 60;
+        this.params.simulatedTime = hours;
+        this.params.timeDisplay = this.formatTimeDisplay(hours);
+        if (this.earth) {
+          this.earth.setSimulatedTime(hours);
+        }
+      }
+    };
+    earthFolder
       .add(resetButton, 'reset')
       .name('Reset Sun Position');
-    resetCtrl.domElement.style.pointerEvents = 'none';
-    resetCtrl.domElement.style.opacity = '0.5';
+  }
+
+  private formatTimeDisplay(hours: number): string {
+    const h = Math.floor(hours);
+    const m = Math.floor((hours - h) * 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} UTC`;
   }
 
   private setupBrightnessControls(): void {
     const brightnessFolder = this.gui.addFolder('Brightness Controls');
 
-    // Note: Day Brightness not implemented yet
-    const dayBrightnessCtrl = brightnessFolder
+    // Day Brightness (0-100%)
+    brightnessFolder
       .add(this.params, 'dayBrightness', 0, 100, 1)
       .name('Day Brightness')
-      .listen();
-    dayBrightnessCtrl.domElement.style.pointerEvents = 'none';
-    dayBrightnessCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.earth) {
+          this.earth.setDayBrightness(value);
+        }
+      });
 
-    // Note: Night Brightness not implemented yet
-    const nightBrightnessCtrl = brightnessFolder
+    // Night Brightness (0-100%)
+    brightnessFolder
       .add(this.params, 'nightBrightness', 0, 100, 1)
       .name('Night Brightness')
-      .listen();
-    nightBrightnessCtrl.domElement.style.pointerEvents = 'none';
-    nightBrightnessCtrl.domElement.style.opacity = '0.5';
+      .onChange((value: number) => {
+        if (this.earth) {
+          this.earth.setNightBrightness(value);
+        }
+      });
   }
 
   private setupFlightControls(): void {
@@ -323,6 +370,20 @@ export class ControlsWebGPU {
 
   public setAtmosphere(atmosphere: AtmosphereWebGPU): void {
     this.atmosphere = atmosphere;
+  }
+
+  public setEarth(earth: EarthWebGPU): void {
+    this.earth = earth;
+  }
+
+  public updateRealTimeSun(): void {
+    if (this.realTimeSunEnabled && this.earth) {
+      const now = new Date();
+      const hours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+      this.params.simulatedTime = hours;
+      this.params.timeDisplay = this.formatTimeDisplay(hours);
+      this.earth.setSimulatedTime(hours);
+    }
   }
 
   public getFlightCount(): number {

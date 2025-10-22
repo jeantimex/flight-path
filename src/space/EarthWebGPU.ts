@@ -42,6 +42,12 @@ export class EarthWebGPU {
   private modelMatrix: mat4;
   private normalMatrix: mat4;
 
+  // Day/Night settings
+  private dayNightEnabled: boolean = true;
+  private simulatedTime: number = 12.0; // UTC hours (0-24)
+  private dayBrightness: number = 70; // Percentage (0-100)
+  private nightBrightness: number = 40; // Percentage (0-100)
+
   // Reusable uniform data buffer (avoids allocation per frame)
   private uniformData: Float32Array;
   private lightDirection: vec3;
@@ -64,7 +70,9 @@ export class EarthWebGPU {
     mat4.transpose(this.normalMatrix, this.normalMatrix);
 
     // Allocate uniform data buffer once (reused every frame)
-    this.uniformData = new Float32Array(60); // 240 bytes / 4 bytes per float
+    // viewProjectionMatrix (64) + modelMatrix (64) + normalMatrix (64) + cameraPosition (16) +
+    // lightDirection (16) + shininess (16) + dayNightEnabled (4) + dayBrightness (4) + nightBrightness (4) + pad (4) = 256 bytes
+    this.uniformData = new Float32Array(64);
 
     // Initialize light direction (reused every frame)
     this.lightDirection = vec3.fromValues(0.5, 0.5, 0.5);
@@ -76,6 +84,39 @@ export class EarthWebGPU {
     // Load texture (use BASE_URL for GitHub Pages deployment)
     const textureUrl = config.textureUrl ?? `${import.meta.env.BASE_URL}world.topo.jpg`;
     this.loadTexture(textureUrl);
+  }
+
+  private calculateSunDirection(): vec3 {
+    // Calculate day of year (1-365/366)
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const diff = now.getTime() - start.getTime();
+    const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24)) + 1;
+
+    // Solar declination (latitude where sun is directly overhead)
+    const declination = 23.45 * Math.sin((Math.PI / 180) * ((360 / 365.25) * (dayOfYear - 81)));
+
+    // Calculate longitude where sun is at zenith
+    // Solar longitude = (12 - UTC_time) * 15
+    const longitude = (12 - this.simulatedTime) * 15;
+
+    // Normalize to -180 to +180 range
+    let normalizedLongitude = longitude;
+    while (normalizedLongitude > 180) normalizedLongitude -= 360;
+    while (normalizedLongitude < -180) normalizedLongitude += 360;
+
+    // Convert lat/lng to 3D direction (normalized)
+    const lat = declination * (Math.PI / 180);
+    const lng = normalizedLongitude * (Math.PI / 180);
+
+    const x = Math.cos(lat) * Math.cos(lng);
+    const y = Math.cos(lat) * Math.sin(lng);
+    const z = Math.sin(lat);
+
+    const sunDirection = vec3.fromValues(x, y, z);
+    vec3.normalize(sunDirection, sunDirection);
+
+    return sunDirection;
   }
 
   private createGeometry(widthSegments: number, heightSegments: number): void {
@@ -139,9 +180,10 @@ export class EarthWebGPU {
 
     // Create uniform buffer
     // Layout: viewProjectionMatrix (64) + modelMatrix (64) + normalMatrix (64) +
-    //         cameraPosition (16) + lightDirection (16) + shininess (16) = 240 bytes
+    //         cameraPosition (16) + lightDirection (16) + shininess (16) +
+    //         dayNightEnabled (4) + dayBrightness (4) + nightBrightness (4) + pad (4) = 256 bytes
     this.uniformBuffer = this.device.createBuffer({
-      size: 240,
+      size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -233,11 +275,26 @@ export class EarthWebGPU {
     // cameraPosition (3 floats + 1 pad)
     this.uniformData.set(camera.position, 48);
 
-    // lightDirection (3 floats + 1 pad)
-    this.uniformData.set(this.lightDirection, 52);
+    // Calculate sun direction if day/night is enabled
+    if (this.dayNightEnabled) {
+      const sunDirection = this.calculateSunDirection();
+      this.uniformData.set(sunDirection, 52);
+    } else {
+      // Use default light direction when day/night is disabled
+      this.uniformData.set(this.lightDirection, 52);
+    }
 
     // shininess (1 float + 3 pad)
     this.uniformData[56] = this.shininess;
+
+    // dayNightEnabled (1 float)
+    this.uniformData[57] = this.dayNightEnabled ? 1.0 : 0.0;
+
+    // dayBrightness (1 float, convert percentage to 0-1)
+    this.uniformData[58] = this.dayBrightness / 100.0;
+
+    // nightBrightness (1 float, convert percentage to 0-1)
+    this.uniformData[59] = this.nightBrightness / 100.0;
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformData.buffer);
 
@@ -255,6 +312,22 @@ export class EarthWebGPU {
 
   public getRadius(): number {
     return this.radius;
+  }
+
+  public setDayNightEnabled(enabled: boolean): void {
+    this.dayNightEnabled = enabled;
+  }
+
+  public setSimulatedTime(hours: number): void {
+    this.simulatedTime = Math.max(0, Math.min(24, hours));
+  }
+
+  public setDayBrightness(percent: number): void {
+    this.dayBrightness = Math.max(0, Math.min(100, percent));
+  }
+
+  public setNightBrightness(percent: number): void {
+    this.nightBrightness = Math.max(0, Math.min(100, percent));
   }
 
   public destroy(): void {

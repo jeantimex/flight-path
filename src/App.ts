@@ -197,6 +197,7 @@ export class WebGPUApp {
       this.guiControls.setCurves(this.curves);
       this.guiControls.setFlightManager(this.flightManager);
       this.guiControls.setAtmosphere(this.atmosphere);
+      this.guiControls.setEarth(this.earth);
 
       console.log('✅ GUI controls initialized');
 
@@ -241,6 +242,11 @@ export class WebGPUApp {
 
     // Update camera controls
     this.controls.update();
+
+    // Update real-time sun position
+    if (this.guiControls) {
+      this.guiControls.updateRealTimeSun();
+    }
 
     // Update stars animation
     if (this.stars) {
