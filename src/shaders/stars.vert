@@ -1,9 +1,6 @@
-attribute float opacity;
-varying float vOpacity;
+varying vec2 vUv;
 
 void main() {
-  vOpacity = opacity;
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  gl_PointSize = 3.0;
-  gl_Position = projectionMatrix * mvPosition;
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
 }
