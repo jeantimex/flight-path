@@ -74,9 +74,10 @@ export class App {
   private readonly textureLoader = new THREE.TextureLoader();
   private svgTexture: THREE.Texture | null = null;
   private svgAtlasInfo: SvgAtlasInfo | null = null;
-  private svgTexturePromise:
-    | Promise<{ texture: THREE.Texture; info: SvgAtlasInfo }>
-    | null = null;
+  private svgTexturePromise: Promise<{
+    texture: THREE.Texture;
+    info: SvgAtlasInfo;
+  }> | null = null;
   private controlsManager!: Controls;
   private guiControls: any = null;
   private earthControlsManager: EarthControlsManager | null = null;
@@ -156,6 +157,11 @@ export class App {
     }
 
     if (this.enableProfiling) t0 = performance.now();
+    this.renderer.clear();
+    if (this.stars) {
+      this.stars.render(this.renderer, this.camera);
+      this.renderer.clearDepth();
+    }
     this.renderer.render(this.scene, this.camera);
     if (this.enableProfiling) {
       t1 = performance.now();
@@ -175,6 +181,7 @@ export class App {
       50000,
     );
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.autoClear = false;
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(0x000000);
     document.querySelector("#app")!.appendChild(this.renderer.domElement);
@@ -423,9 +430,7 @@ export class App {
     );
   }
 
-  private assignRandomPlane(
-    config: Partial<FlightConfig> = {},
-  ): FlightConfig {
+  private assignRandomPlane(config: Partial<FlightConfig> = {}): FlightConfig {
     return FlightUtils.assignRandomPlane(
       config,
       this.planeEntries,
@@ -470,9 +475,7 @@ export class App {
     }
   }
 
-  private resolvePaneColor(
-    config: Partial<FlightConfig> = {},
-  ): number {
+  private resolvePaneColor(config: Partial<FlightConfig> = {}): number {
     if (typeof config.paneColor === "number") {
       return config.paneColor;
     }
@@ -483,11 +486,7 @@ export class App {
   }
 
   private updateLighting(): void {
-    if (
-      !this.guiControls ||
-      !this.ambientLight ||
-      !this.directionalLight
-    ) {
+    if (!this.guiControls || !this.ambientLight || !this.directionalLight) {
       return;
     }
 
@@ -651,7 +650,10 @@ export class App {
   }
 
   private applyPaneTexture(): void {
-    if (!this.mergedPanes || typeof this.mergedPanes.setTexture !== "function") {
+    if (
+      !this.mergedPanes ||
+      typeof this.mergedPanes.setTexture !== "function"
+    ) {
       return;
     }
 
@@ -772,9 +774,7 @@ export class App {
 
       const flightConfig: FlightConfig = {
         ...baseConfig,
-        controlPoints: FlightUtils.cloneControlPoints(
-          baseConfig.controlPoints,
-        ),
+        controlPoints: FlightUtils.cloneControlPoints(baseConfig.controlPoints),
         segmentCount: this.params.segmentCount,
         curveColor: baseConfig.curveColor,
         paneSize: this.params.planeSize,
@@ -798,5 +798,4 @@ export class App {
     this.planeControlsManager.setHidePlane(this.params.hidePlane);
     this.flightControlsManager.setReturnFlight(this.params.returnFlight);
   }
-
 }
