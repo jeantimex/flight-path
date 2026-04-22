@@ -10,6 +10,7 @@ import { vector3ToLatLng } from "../common/Utils.ts";
  */
 export class UIManager {
   private readonly stats: Stats;
+  private statsVisible = true;
   private loadingScreenCreated = false;
   private loadingScreenElement: HTMLElement | null = null;
   private footerCoordinatesElement: HTMLElement | null = null;
@@ -76,7 +77,7 @@ export class UIManager {
       (container as HTMLElement).style.display = "none";
     });
 
-    this.hideStats();
+    this.stats.dom.style.display = "none";
     if (this.footerCoordinatesElement) {
       this.footerCoordinatesElement.style.display = "none";
     }
@@ -87,7 +88,7 @@ export class UIManager {
       (container as HTMLElement).style.display = "block";
     });
 
-    this.showStats();
+    this.applyStatsVisibility();
 
     if (this.footerCoordinatesElement) {
       this.footerCoordinatesElement.style.display = "block";
@@ -193,16 +194,24 @@ export class UIManager {
   }
 
   public showStats(): void {
-    this.stats.dom.style.display = "block";
+    this.setStatsVisible(true);
   }
 
   public hideStats(): void {
-    this.stats.dom.style.display = "none";
+    this.setStatsVisible(false);
   }
 
   public toggleStats(): void {
-    const isVisible = this.stats.dom.style.display !== "none";
-    this.stats.dom.style.display = isVisible ? "none" : "block";
+    this.setStatsVisible(!this.statsVisible);
+  }
+
+  public setStatsVisible(visible: boolean): void {
+    this.statsVisible = visible;
+    this.applyStatsVisibility();
+  }
+
+  private applyStatsVisibility(): void {
+    this.stats.dom.style.display = this.statsVisible ? "block" : "none";
   }
 
   public getStats(): Stats {

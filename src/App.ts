@@ -211,6 +211,8 @@ export class App {
       hidePlane: false,
       randomSpeed: false,
       returnFlight: true,
+      starCloud: true,
+      statsMeter: false,
     } as GuiParams;
 
     this.controlsManager = new Controls();
@@ -321,6 +323,8 @@ export class App {
         params: this.params,
         managerDependencies,
         earthControlsManager: this.earthControlsManager,
+        onStarCloudChange: (value: boolean) => this.toggleStarCloud(value),
+        onStatsMeterChange: (value: boolean) => this.toggleStatsMeter(value),
         resetSunPosition,
       },
       {
@@ -342,6 +346,8 @@ export class App {
         numFlights: this.params.numFlights,
         flightCountRange: { min: 1, max: MAX_FLIGHTS, step: 1 },
         returnFlight: this.params.returnFlight,
+        starCloud: this.params.starCloud,
+        statsMeter: this.params.statsMeter,
       },
     );
 
@@ -382,6 +388,19 @@ export class App {
         this.guiControls.dayNightEffect,
       );
     }
+
+    this.toggleStarCloud(this.guiControls?.starCloud ?? true);
+    this.toggleStatsMeter(this.guiControls?.statsMeter ?? false);
+  }
+
+  private toggleStarCloud(enabled: boolean): void {
+    this.params.starCloud = enabled;
+    this.stars?.setStarCloudVisible(enabled);
+  }
+
+  private toggleStatsMeter(enabled: boolean): void {
+    this.params.statsMeter = enabled;
+    this.uiManager.setStatsVisible(enabled);
   }
 
   private setupCamera(): void {

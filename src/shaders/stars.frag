@@ -1,5 +1,6 @@
 uniform float time;
 uniform float hashSeed;
+uniform bool showStarCloud;
 uniform vec3 cloudOffsetA;
 uniform vec3 cloudOffsetB;
 uniform vec3 cloudOffsetC;
@@ -131,12 +132,16 @@ void main() {
     smoothstep(0.78, 0.92, sparkleT) * (1.0 - smoothstep(0.92, 1.0, sparkleT));
   sparkle *= sparkleChance * smoothstep(0.72, 1.0, sparkleSeed);
 
-  vec3 color = baseColor + blueCloud + paleCloud;
+  vec3 cloudColor = showStarCloud
+    ? blueCloud + paleCloud + goldCloud + roseCloud + violetCloud
+    : vec3(0.0);
+  float dustMask = showStarCloud ? dustLane : 0.0;
+
+  vec3 color = baseColor + cloudColor;
   color += starColor * star * blink * 1.15;
   color += vec3(1.0) * brightStar * (0.7 + 1.2 * twinkle * blinkChance);
   color += vec3(0.85, 0.92, 1.0) * star * sparkle * 2.2;
-  color += goldCloud + roseCloud + violetCloud;
-  color *= 1.0 - dustLane * 0.35;
+  color *= 1.0 - dustMask * 0.35;
 
   gl_FragColor = vec4(color, 1.0);
 }

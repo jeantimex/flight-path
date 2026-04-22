@@ -49,6 +49,8 @@ interface ControlsContext {
   params: GuiParams;
   managerDependencies: ControlsManagerDependencies;
   earthControlsManager?: EarthControlsManager | null;
+  onStarCloudChange?: (value: boolean) => void;
+  onStatsMeterChange?: (value: boolean) => void;
   resetSunPosition: () => void;
 }
 
@@ -70,6 +72,8 @@ export class Controls {
     this.guiControls = {
       dayNightEffect: true,
       atmosphereEffect: true,
+      starCloud: true,
+      statsMeter: false,
       realTimeSun: true,
       simulatedTime: getCurrentUtcTimeHours(),
       timeDisplay: hoursToTimeString(getCurrentUtcTimeHours()),
@@ -145,6 +149,14 @@ export class Controls {
       this.guiControls.returnFlight = !!options.returnFlight;
     }
 
+    if (options.starCloud !== undefined) {
+      this.guiControls.starCloud = !!options.starCloud;
+    }
+
+    if (options.statsMeter !== undefined) {
+      this.guiControls.statsMeter = !!options.statsMeter;
+    }
+
     this.setupFlightControls({
       flightCountRange: options.flightCountRange || {},
     });
@@ -158,8 +170,11 @@ export class Controls {
       elevationRange: options.elevationRange || {},
       paneStyleOptions: options.paneStyleOptions || ["Pane", "SVG"],
     });
+    this.setupSpaceControls();
+    this.setupPerformanceControls();
     this.setupEarthControls();
     this.setupBrightnessControls();
+    this.gui.close();
   }
 
   /**
@@ -194,7 +209,13 @@ export class Controls {
       return {};
     }
 
-    const { params, earthControlsManager, resetSunPosition } = this.context;
+    const {
+      params,
+      earthControlsManager,
+      onStarCloudChange,
+      onStatsMeterChange,
+      resetSunPosition,
+    } = this.context;
     const planeControlsManager = this.planeControlsManager;
     const flightPathManager = this.flightPathManager;
     const flightControlsManager = this.flightControlsManager;
@@ -205,6 +226,14 @@ export class Controls {
       },
       onAtmosphereEffectChange: (value: boolean) => {
         earthControlsManager?.toggleAtmosphereEffect(value);
+      },
+      onStarCloudChange: (value: boolean) => {
+        params.starCloud = value;
+        onStarCloudChange?.(value);
+      },
+      onStatsMeterChange: (value: boolean) => {
+        params.statsMeter = value;
+        onStatsMeterChange?.(value);
       },
       onResetSunPosition: () => {
         resetSunPosition();
@@ -446,7 +475,43 @@ export class Controls {
         }
       });
 
-    earthFolder.open();
+    earthFolder.close();
+  }
+
+  private setupSpaceControls(): void {
+    if (!this.gui) return;
+
+    const spaceFolder: GUIFolder = this.gui.addFolder("Space Controls");
+
+    this.controllers.starCloud = spaceFolder
+      .add(this.guiControls, "starCloud")
+      .name("Star Cloud")
+      .onChange((value: boolean) => {
+        if (this.callbacks.onStarCloudChange) {
+          this.callbacks.onStarCloudChange(value);
+        }
+      });
+
+    spaceFolder.close();
+  }
+
+  private setupPerformanceControls(): void {
+    if (!this.gui) return;
+
+    const performanceFolder: GUIFolder = this.gui.addFolder(
+      "Performance Controls",
+    );
+
+    this.controllers.statsMeter = performanceFolder
+      .add(this.guiControls, "statsMeter")
+      .name("Stats Meter")
+      .onChange((value: boolean) => {
+        if (this.callbacks.onStatsMeterChange) {
+          this.callbacks.onStatsMeterChange(value);
+        }
+      });
+
+    performanceFolder.close();
   }
 
   private setupBrightnessControls(): void {
@@ -473,7 +538,7 @@ export class Controls {
         }
       });
 
-    brightnessFolder.open();
+    brightnessFolder.close();
   }
 
   private setupFlightControls(config: FlightControlsConfig = {}): void {
@@ -515,7 +580,7 @@ export class Controls {
         }
       });
 
-    flightControlsFolder.open();
+    flightControlsFolder.close();
   }
 
   private setupFlightPathControls(config: FlightPathControlsConfig = {}): void {
@@ -569,7 +634,7 @@ export class Controls {
         }
       });
 
-    flightPathFolder.open();
+    flightPathFolder.close();
   }
 
   private setupPlaneControls(config: PlaneControlsConfig = {}): void {
@@ -673,7 +738,7 @@ export class Controls {
         }
       });
 
-    planeFolder.open();
+    planeFolder.close();
   }
 
   public setPlaneSize(value: number): void {

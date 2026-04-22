@@ -302,6 +302,8 @@ export interface ControlsOptions {
   hidePath?: boolean;
   numFlights?: number;
   returnFlight?: boolean;
+  starCloud?: boolean;
+  statsMeter?: boolean;
   planeSizeRange?: RangeConfig;
   speedRange?: RangeConfig;
   elevationRange?: RangeConfig;
@@ -314,6 +316,8 @@ export interface ControlsOptions {
 export interface GuiControls {
   dayNightEffect: boolean;
   atmosphereEffect: boolean;
+  starCloud: boolean;
+  statsMeter: boolean;
   realTimeSun: boolean;
   simulatedTime: number;
   timeDisplay: string;
@@ -335,6 +339,8 @@ export interface GuiControls {
 export interface ControlsCallbacks {
   onDayNightEffectChange?: (value: boolean) => void;
   onAtmosphereEffectChange?: (value: boolean) => void;
+  onStarCloudChange?: (value: boolean) => void;
+  onStatsMeterChange?: (value: boolean) => void;
   onResetSunPosition?: () => void;
   onRealTimeSunChange?: (value: boolean) => void;
   onTimeDisplayChange?: (value: string) => void;
@@ -356,6 +362,8 @@ export interface ControlsCallbacks {
 
 export type KnownControllerKey =
   | "realTimeSun"
+  | "starCloud"
+  | "statsMeter"
   | "timeDisplay"
   | "timeSlider"
   | "numFlights"
@@ -448,6 +456,8 @@ export interface GuiParams {
   gapSize: number;
   hidePath: boolean;
   randomSpeed: boolean;
+  starCloud: boolean;
+  statsMeter: boolean;
 }
 
 // =============================================================================

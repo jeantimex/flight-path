@@ -57,6 +57,7 @@ export class Stars {
       uniforms: {
         time: { value: 0 },
         hashSeed: { value: skySeed },
+        showStarCloud: { value: true },
         cloudOffsetA: {
           value: new THREE.Vector3(
             randomRange(-80, 80),
@@ -172,6 +173,10 @@ export class Stars {
     this.fovScale.set(fovY * camera.aspect, fovY);
 
     renderer.render(this.scene, this.camera);
+  }
+
+  public setStarCloudVisible(visible: boolean): void {
+    this.material.uniforms.showStarCloud.value = visible;
   }
 
   public dispose(): void {
